@@ -12,3 +12,10 @@ All files in the `docs/` directory (`@docs/vision.md`, `@docs/architecture.md`, 
 
 **DOCUMENTATION MODIFICATION PROTOCOL:**
 You are strictly forbidden from modifying `@docs/vision.md`, `@docs/architecture.md`, `@docs/specifications.md`, or `@docs/gaps_and_wip.md` without first presenting the proposed text changes to the user for iteration. You may only execute the file writes to update these documents after the user replies with the exact phrase "code away".
+
+**CHANGE EVALUATION WORKFLOW:**
+When evaluating and preparing to implement any new system changes, you must adhere strictly to this top-down sequential workflow:
+1. **Vision:** Decide if a change to `@docs/vision.md` is required (after thorough review of the vision). If so, present and iterate per the modification protocol below.
+2. **Architecture:** Decide if a change to `@docs/architecture.md` is required (after thorough review of the vision and architecture). If so, present and iterate per the modification protocol below.
+3. **Specifications:** Decide if a change to `@docs/specifications.md` is required (after thorough review of the vision, architecture, and specifications). If so, present and iterate per the modification protocol below.
+4. **Tests & Implementation:** Decide if a change to the tests is needed (after reviewing all documentation levels above). Because tests strictly map to active documentation, simply execute the tests followed by the runtime code without requiring textual iteration.
