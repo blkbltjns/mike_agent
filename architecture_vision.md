@@ -21,13 +21,13 @@ This system is being built to solve the severe limitations of current LLM coding
 The system relies on a central `Bus` class that fully encapsulates the Inbox and Outbox. External components never interact with the Inbox or Outbox directly—they use the Bus's public API.
 
 * **Bus Public API:** `enqueue(command)`, `claim(command_names)`, `write_result(request_id, command_name, result)`, `get_result(request_id)`.
-* **The Global Inbox (Active Task Queue):**
+* **The Global Inbox (Append-Only Task Queue):**
   * Contains pending `AgentCommand` objects (see Section 3).
-  * **Mutable:** When an agent successfully claims and processes a command, it is removed from the Inbox.
+  * **Append-Only:** Commands are never deleted from the Inbox. When an agent successfully claims a command, it is flagged as claimed but remains in the queue.
 * **The Global Outbox (Append-Only Log):**
   * A permanent, chronological history of all completed commands and their results.
   * When an Inbox command is fulfilled, the result is appended here, permanently paired with its original `AgentCommand.id`.
-  * **Immutable/Append-Only:** Nothing is ever deleted. This is the system's absolute memory.
+  * **Append-Only:** Nothing is ever deleted. This is the system's absolute memory.
 
 ---
 
@@ -35,9 +35,8 @@ The system relies on a central `Bus` class that fully encapsulates the Inbox and
 The system decouples *intent* (what needs to be done) from *execution* (who does it). 
 
 * **AgentCommand:** The first-class data object representing a task. Each `AgentCommand` contains a unique `id`, a `command_name`, and a `payload` dictionary.
-* **AgentCommandFactory:** A factory class with bespoke static methods per command type (e.g., `AgentCommandFactory.say_hello()`). Its only job is to create and return typed `AgentCommand` objects. It does **not** enqueue them—the caller is responsible for passing the command to the `Bus`.
-* **AgentCommandRegistry:** Maps command names to the agent handlers that execute them. A single command can be mapped to multiple agents, and a single agent mapped to multiple commands. Agents self-register the commands they support during `__init__`.
-* **Passive Routing:** Agents do not talk to each other. A calling agent creates an `AgentCommand` and drops it into the Bus. Agents continuously use `threading` to asynchronously poll the Bus for commands they are mapped to.
+* **AgentCommandFactory:** A static-only factory class with bespoke static methods per command type (e.g., `AgentCommandFactory.say_hello()`). It is not instantiable. Its only job is to create and return typed `AgentCommand` objects. It does **not** enqueue them—the caller is responsible for passing the command to the `Bus`.
+* **Passive Routing:** Agents do not talk to each other. A calling agent creates an `AgentCommand` and drops it into the Bus. Each agent symmetrically declares its `incoming_commands` (tasks it is registered to claim and process) and `outgoing_commands` (tasks it is authorized to construct and enqueue) during construction. Agents continuously use `threading` to asynchronously poll the Bus for matching incoming commands.
 
 ---
 
@@ -46,21 +45,20 @@ All agents operate on the same basic loop: Poll Bus → Claim `AgentCommand` →
 
 Crucially, **execution logic lives within the Agent context itself**. The definitions of what it actually means to `print("Hello")` or read from the user are methods inside the Agent object handling the command.
 
-* **GC (General Contractor) Agent:** The primary LLM orchestrator. Receives the initial prompt, ensures it understands, and enqueues initial high-level `AgentCommand` objects to the Bus.
 * **LLM Worker Agents:** Handle reasoning tasks (e.g., `formulate_plan`, `evaluate_code`). They output strictly formatted JSON containing their `thought` and a `next_command`.
 * **Python Worker Agents (Deterministic):** Handle pure code/OS tasks (e.g., `read_file_contents`). No LLM needed.
-* **The User Agent (Human):** The human is registered as an agent in the system. Any command that is too complex for an LLM or Python right now (e.g., `run_complex_build`, `verify_hallucination`, `ask_user_clarification`) is simply mapped to the User Agent. The system prompts the human's terminal to fulfill the command, then seamlessly continues.
+* **The User Agent (Human):** The human literally acts as the "brain," registered identically to any other agent. Any command too complex for an LLM (e.g., `run_complex_build`, `prompt_user`) is mapped to the User Agent. The `UserAgent` operates via a synchronous polling terminal REPL. This robust design allows the human to proactively and autonomously type at any time—whether it's `view_incoming_commands` to read waiting background tasks, `reply` to fulfill a task, or `enqueue` to explicitly invoke new commands. The main program bootstraps the initial command, but the `UserAgent` remains a peer—not a special orchestrator.
 
 ---
 
 ## 5. Execution Flow & Cognitive Loop
 The system runs as an autonomous, asynchronous `while` loop driven by Python. Each agent runs in its own `threading.Thread`.
 
-1. **Initiation:** User prompt is translated into initial `AgentCommand` objects (via `AgentCommandFactory`) and enqueued to the Bus.
-2. **Processing:** Agents concurrently poll and claim `AgentCommand` objects they own from the Bus.
-3. **Chained Execution:** To achieve a goal, an agent creates new `AgentCommand` objects and enqueues them to the Bus (e.g., to solve `fix_bug`, an agent enqueues a `read_file` command).
-4. **Course Correction (No Deletions):** If an agent reviews an Outbox result and realizes it's wrong/insufficient, it does *not* delete it. It enqueues a *new* `AgentCommand`, referencing the failed Outbox ID, with instructions on why it failed and what to do next.
-5. **Termination:** The loop concludes when the system's reasoning dictates the goal is met, enqueueing a `writeuserresponse` command. The mapped agent synthesizes the Outbox history and delivers the final answer. All agents are shut down via `stop()`.
+1. **Initiation:** The LLMAgent specifically kicks off the system by issuing the first proactive target command down the system pipeline via a startup method.
+2. **Processing:** Agents concurrently poll and claim `AgentCommand` objects they own from the Inbox.
+3. **Async Outbox Tracking:** To achieve a perpetual linear goal, an agent constructs a new `AgentCommand` output, enqueues it to the Bus, and instantly assigns its generated `.id` internally to a state tracker (`waiting_for_results`).
+4. **Resumption:** Agents autonomously parse the Outbox against their state tracker concurrently identically to Inbox polling. When the target Outbox resolution occurs, the agent consumes it via a routing continuation handler.
+5. **Passive Termination:** The overarching loop concludes organically through `stop()` when logic thresholds dictate.
 
 ---
 
