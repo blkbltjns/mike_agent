@@ -23,7 +23,6 @@ The system decouples *intent* (what needs to be done) from *execution* (who does
 All agents operate on the same basic loop: Poll Bus → Claim `AgentCommand` → Execute → Write result to Bus. Agents expose a `stop()` method for graceful shutdown. Execution logic lives within the Agent context itself.
 
 * **LLM Worker Agents:** Handle reasoning tasks. Output strictly formatted JSON.
-* **Python Worker Agents (Deterministic):** Handle pure code/OS tasks. No LLM needed.
 * **The User Agent (Human):** Registered identically to any other agent. The `UserAgent` operates via a synchronous polling terminal REPL, allowing the human to proactively and autonomously type (`view_incoming_commands`, `reply`, `enqueue`, `list_commands`, `exit`).
 
 ## 4. Execution Flow & Cognitive Loop

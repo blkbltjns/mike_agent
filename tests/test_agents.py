@@ -63,7 +63,10 @@ def test_llm_agent_gemini_integration(mock_client_class, setup_components):
     
     # 1. Verify Specification: SDK Integration and Environment keys
     mock_client_class.assert_called()
-    mock_client_instance.models.generate_content.assert_called()
+    mock_client_instance.models.generate_content.assert_called_with(
+        model=agent.GEMINI_3_0_FLASH,
+        contents="Hello You must return ONLY a raw JSON dictionary without any markdown formatting or code blocks."
+    )
     
     # 2. Verify Specification: strict JSON dictionary formatting output
     result_item = bus.get_result(cmd.id)

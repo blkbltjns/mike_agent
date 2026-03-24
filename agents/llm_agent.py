@@ -9,6 +9,13 @@ class LLMAgent(Agent):
     """
     An agent that processes LLM-related tasks and proactively guides the User.
     """
+    # Verified Gemini Model IDs (as of March 2026)
+    GEMINI_3_0_FLASH = 'gemini-3.0-flash'          # verified
+    GEMINI_3_1_PRO_PREVIEW = 'gemini-3.1-pro-preview' # verified
+    GEMINI_2_5_FLASH = 'gemini-2.5-flash'          # verified
+    GEMINI_2_5_PRO = 'gemini-2.5-pro'              # verified
+    GEMINI_3_1_FLASH_LITE = 'gemini-3.1-flash-lite-preview' # verified
+
     def __init__(self, bus):
         all_cmds = AgentCommandFactory.get_all_commands()
         super().__init__(incoming_commands=["process_user_prompt"], outgoing_commands=all_cmds, bus=bus)
@@ -43,7 +50,7 @@ class LLMAgent(Agent):
             full_prompt = prompt + instruction
             
             response = client.models.generate_content(
-                model='gemini-3.0-flash', 
+                model=self.GEMINI_3_0_FLASH, 
                 contents=full_prompt
             )
             

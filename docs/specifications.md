@@ -26,4 +26,10 @@
 
 ## 4. LLMAgent Execution Contract
 * **LLM Integration:** The `LLMAgent` is explicitly responsible for executing tasks by querying the Gemini model using the `google-genai` SDK and the `GEMINI_API_KEY` environment variable. 
+* **Verified Model Constraints:** The `LLMAgent` must use only verified Gemini model identifiers (e.g., `gemini-3.0-flash` or `gemini-3.1-pro-preview`) to ensure reliability and compatibility.
 * **JSON Output Formatting:** The `LLMAgent` must guarantee that all final execution payloads written back to the Bus Outbox are strictly formatted as valid dictionaries/JSON objects. The agent acts as a structural wrapper, ensuring formatting compliance regardless of the raw text shape returned by the underlying LLM API.
+
+## 5. User Agent Execution Contract
+* **Synchronous REPL Loop:** The `UserAgent` represents a human operator. Unlike async background agents, it must operate a blocking, synchronous terminal interface.
+* **Symmetrical Integration:** Even though it blocks the terminal, it must adhere identically to the core agent lifecycle by explicitly declaring `incoming_commands` and reading from/writing to the Bus.
+* **Proactive & Reactive Capabilities:** The REPL must provide commands allowing the human to proactively `enqueue` new target commands, as well as reactively `reply` to matching commands waiting in the Inbox.
