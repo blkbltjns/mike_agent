@@ -17,7 +17,7 @@ The system decouples *intent* (what needs to be done) from *execution* (who does
 
 * **AgentCommand:** The first-class data object representing a task. Each `AgentCommand` contains a unique `id`, a `command_name`, and a `payload` dictionary.
 * **AgentCommandFactory:** A static-only factory class with bespoke static methods per command type. It is not instantiable. Its only job is to create and return typed `AgentCommand` objects. It does **not** enqueue them—the caller is responsible for passing the command to the `Bus`.
-* **Passive Routing:** Agents do not talk to each other. A calling agent creates an `AgentCommand` and drops it into the Bus. Each agent symmetrically declares its `incoming_commands` and `outgoing_commands` during construction. Agents continuously use `threading` to asynchronously poll the Bus for matching incoming commands.
+* **Passive Routing:** Agents do not talk to each other. A calling agent creates an `AgentCommand` and drops it into the Bus. Each agent declares its `incoming_commands` during construction. Agents have universal access to enqueue any valid command, and continuously use `threading` to asynchronously poll the Bus for matching incoming commands.
 
 ## 3. Agent Topology
 All agents operate on the same basic loop: Poll Bus → Claim `AgentCommand` → Execute → Write result to Bus. Agents expose a `stop()` method for graceful shutdown. Execution logic lives within the Agent context itself.
@@ -28,7 +28,7 @@ All agents operate on the same basic loop: Poll Bus → Claim `AgentCommand` →
 ## 4. Execution Flow & Cognitive Loop
 The system runs as an autonomous, asynchronous `while` loop driven by Python. Each agent runs in its own `threading.Thread`.
 
-1. **Initiation:** The LLMAgent specifically kicks off the system by issuing the first proactive target command.
+1. **Initiation:** The overarching script bootstraps the system by injecting initial proactive target commands directly into an agent's `run` loop as arguments during thread startup, allowing any agent to seed the Bus.
 2. **Processing:** Agents concurrently poll and claim `AgentCommand` objects they own from the Inbox.
 3. **Async Outbox Tracking:** An agent constructs a new `AgentCommand` output, enqueues it to the Bus, and instantly assigns its generated `.id` internally to a state tracker (`waiting_for_results`).
 4. **Resumption:** Agents autonomously parse the Outbox against their state tracker concurrently. When the target Outbox resolution occurs, the agent consumes it via a routing continuation handler.

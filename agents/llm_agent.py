@@ -17,14 +17,8 @@ class LLMAgent(Agent):
     GEMINI_3_1_FLASH_LITE = 'gemini-3.1-flash-lite-preview' # verified
 
     def __init__(self, bus):
-        all_cmds = AgentCommandFactory.get_all_commands()
-        super().__init__(incoming_commands=["process_user_prompt"], outgoing_commands=all_cmds, bus=bus)
+        super().__init__(incoming_commands=["process_user_prompt"], bus=bus)
 
-    def initiate_conversation(self, initial_question: str):
-        """Manually push the first prompt_user task to the Bus and track it."""
-        cmd = AgentCommandFactory.prompt_user({"question": initial_question})
-        self.bus.enqueue(cmd)
-        self.waiting_for_results[cmd.id] = {"action": "awaiting_user_reply"}
 
     def handle_outbox_result(self, result: dict, context: dict):
         """Reacts autonomously when the human formally replies to a tracked prompt."""

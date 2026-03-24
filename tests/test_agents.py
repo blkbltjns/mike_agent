@@ -28,8 +28,10 @@ def test_llm_agent_tracker(setup_components):
     bus = setup_components
     agent = LLMAgent(bus=bus)
     
-    agent.initiate_conversation("Hello!")
-    
+    # Simulate being bootstrapped by the main.py entrypoint
+    cmd = AgentCommandFactory.prompt_user({"question": "Hello!"})
+    bus.enqueue(cmd)
+    agent.waiting_for_results[cmd.id] = {"action": "awaiting_user_reply"}    
     cmd = bus.claim(["prompt_user"])
     assert cmd is not None
     assert cmd.payload["question"] == "Hello!"

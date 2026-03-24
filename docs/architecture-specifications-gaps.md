@@ -1,3 +1,9 @@
 # Architecture to Specifications Gaps
 
 *   **Outbox Result Schema Format:** The Outbox currently accepts a weakly-typed dictionary for the `result`. This needs to be formalized into an object.
+*   **The LLM Error Handling & Retry Gap:** The architecture declares that LLM agents output strictly formatted JSON. However, the specifications don't define the deterministic contract for what happens when the LLM outputs malformed JSON or hallucinates an invalid instruction. Does the agent retry? Does it route an error back to the human?
+*   **The Outbox Cursor / Performance Gap:** The architecture defines the Outbox as a permanent, append-only log that agents constantly poll, and the specs mandate this polling. However, there is no specification for an "Outbox Cursor", meaning agents would logically be re-scanning an infinitely growing list from index 0 on every single loop tick.
+*   **The Durability & Session Persistence Gap:** The documentation calls for a "permanent" audit trail, but the specifications don't clarify if the Bus is just using in-memory Python lists (which vanish when `main.py` stops) or if there's a strict requirement for writing this state to disk so sessions can be resumed.
+
+*   **The Initialization / "Kick-Off" Gap:** The Execution Flow architecture states that "The LLMAgent specifically kicks off the system by issuing the first proactive target command." However, the LLMAgent Execution Contract in the specifications fails to define what this command is, its structure, or how it is invoked before any commands exist in the Inbox.
+*   **The Graceful Shutdown Specification Gap:** The architecture mentions agents expose a `stop()` method and the system loop concludes organically. But the Agent Execution Behavior Constraints lack a specification detailing how the `stop()` method triggers thread termination safely from within the blocking async `while` loop.

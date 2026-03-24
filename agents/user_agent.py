@@ -7,8 +7,7 @@ class UserAgent(Agent):
     An agent that processes user-related tasks via an interactive REPL.
     """
     def __init__(self, bus):
-        all_cmds = AgentCommandFactory.get_all_commands()
-        super().__init__(incoming_commands=["prompt_user"], outgoing_commands=all_cmds, bus=bus)
+        super().__init__(incoming_commands=["prompt_user"], bus=bus)
         self.pending_tasks = {}
         self.task_counter = 1
 
@@ -59,8 +58,8 @@ class UserAgent(Agent):
             print(f"  [{task_id}] {command.command_name}: {command.payload}")
 
     def _list_commands(self):
-        print("Authorized Outgoing Commands you can explicitly enqueue:")
-        for cmd in self.outgoing_commands:
+        print("Commands you can explicitly enqueue:")
+        for cmd in AgentCommandFactory.get_all_commands():
             print(f"  - {cmd}")
 
     def _handle_reply(self, arg: str):
@@ -99,8 +98,8 @@ class UserAgent(Agent):
                 print("Invalid JSON payload. Using empty dict.")
                 payload = {}
 
-        if command_name not in self.outgoing_commands:
-            print(f"Not an authorized outgoing command: {command_name}. Allowed: {self.outgoing_commands}")
+        if command_name not in AgentCommandFactory.get_all_commands():
+            print(f"Not a valid command: {command_name}.")
             return
             
         from agent_command import AgentCommand

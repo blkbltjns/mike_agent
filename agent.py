@@ -7,9 +7,8 @@ class Agent:
     executes them in its own context, and writes results back to the Bus.
     """
 
-    def __init__(self, incoming_commands: list, outgoing_commands: list, bus):
+    def __init__(self, incoming_commands: list, bus):
         self.incoming_commands = incoming_commands
-        self.outgoing_commands = outgoing_commands
         self.bus = bus
         self.active = False
         self.waiting_for_results = {}
@@ -58,8 +57,14 @@ class Agent:
         self.bus.write_result(command.id, command.command_name, result, agent_name=agent_name)
         return True
 
-    def run(self) -> None:
+    def run(self, bootstrap_commands: list = None) -> None:
         """Run the agent loop continuously. Sleeps if no claimable commands."""
+        if bootstrap_commands:
+            for bt_cmd, context in bootstrap_commands:
+                self.bus.enqueue(bt_cmd)
+                if context is not None:
+                    self.waiting_for_results[bt_cmd.id] = context
+                    
         self.active = True
         while self.active:
             processed = self._execute_next_command()

@@ -12,12 +12,14 @@ def main():
     user_agent = UserAgent(bus=bus)
     llm_agent = LLMAgent(bus=bus)
 
-    # Start background agents in daemon threads
-    llm_thread = threading.Thread(target=llm_agent.run, daemon=True)
+    # The system bootstraps the workflow by injecting the initial command target
+    initial_cmd = AgentCommandFactory.prompt_user({"question": "How can I start helping you today?"})
+    llm_thread = threading.Thread(
+        target=llm_agent.run, 
+        kwargs={"bootstrap_commands": [(initial_cmd, {"action": "awaiting_user_reply"})]}, 
+        daemon=True
+    )
     llm_thread.start()
-
-    # The LLMAgent natively initializes the workflow loop completely autonomously
-    llm_agent.initiate_conversation("How can I start helping you today?")
 
     # The UserAgent handles standard input, which is blocking and not fully thread-safe.
     # By running its loop on the main thread, it safely captures input and keeps the app alive.

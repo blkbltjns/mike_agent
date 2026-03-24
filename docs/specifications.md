@@ -18,6 +18,7 @@
 
 ## 3. Agent Execution Behavior Constraints
 * **Validation Bounds:** Agents must strictly ignore commands in the Bus not present in their explicit `incoming_commands` list.
+* **System Initialization:** Base Agents must accept an optional `bootstrap_commands` argument (a list of `(AgentCommand, dict)` tuples) in their `run` method. Prior to entering the polling loop, the agent must passively enqueue these commands to the Bus and register any provided context mapped against the command ID in its internal `waiting_for_results` state tracker.
 * **Lifecycle Pipeline:**
   * Repeatedly poll the Bus inbox for matches across their `incoming_commands`.
   * Execute task.
@@ -33,3 +34,10 @@
 * **Synchronous REPL Loop:** The `UserAgent` represents a human operator. Unlike async background agents, it must operate a blocking, synchronous terminal interface.
 * **Symmetrical Integration:** Even though it blocks the terminal, it must adhere identically to the core agent lifecycle by explicitly declaring `incoming_commands` and reading from/writing to the Bus.
 * **Proactive & Reactive Capabilities:** The REPL must provide commands allowing the human to proactively `enqueue` new target commands, as well as reactively `reply` to matching commands waiting in the Inbox.
+
+## 6. Agent Dialogue Routing & Command Contracts
+* **Dialogue Initiation (LLM agent to User agent):** The LLM agent must use the prompt_user command to request input from the human. The payload must strictly contain a `question` string.
+* **Dialogue Response (Human to LLM agent):** The User agent handles prompt_user commands. The human reply is not routed as a new command, but must be written directly to the Bus Outbox as a result bound to the original command ID.
+* **Passive Dialogue Continuation:** The LLM agent must use its internal waiting_for_results state tracker to asynchronously await the human reply to the prompt_user command in the Outbox before continuing its logic stream.
+* **System Bootstrapping Validation:** The system entrypoint must inject an initial `prompt_user` command into the LLMAgent's `run(bootstrap_commands)` method. The injected context mapping must strictly contain `{"action": "awaiting_user_reply"}` to ensure the agent's `handle_outbox_result()` method can deterministically capture and process the human's first response.
+* **Proactive Execution (Human to LLM agent):** The human operator may autonomously instruct the system by instructing the User agent to enqueue a process_user_prompt command. The payload must strictly contain a `prompt` string.

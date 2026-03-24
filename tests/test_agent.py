@@ -8,7 +8,7 @@ from agent_command import AgentCommand
 class DummyAgent(Agent):
     """A minimal subclass used purely for unit testing the base Agent loop."""
     def __init__(self, bus):
-        super().__init__(incoming_commands=["dummy_command"], outgoing_commands=["dummy_command"], bus=bus)
+        super().__init__(incoming_commands=["dummy_command"], bus=bus)
 
     def execute(self, command):
         if command.command_name == "dummy_command":
@@ -88,6 +88,30 @@ class TestAgentThreadLoop:
         assert bus.claim(["dummy_command"]) is None
         assert bus.get_result(cmd1.id) is not None
         assert bus.get_result(cmd2.id) is not None
+
+    def test_run_bootstraps_commands(self):
+        bus, agent = make_system()
+        # Use an unowned command so it enters the tracker but isn't instantly processed and deleted
+        cmd = AgentCommand("unowned_command")
+        
+        t = threading.Thread(
+            target=agent.run, 
+            kwargs={"bootstrap_commands": [(cmd, {"test": "context_data"})]}
+        )
+        t.start()
+        
+        # Verify the command hit the bus by claiming it manually (since agent doesn't own it)
+        fetched_cmd = None
+        while fetched_cmd is None:
+            fetched_cmd = bus.claim(["unowned_command"])
+            time.sleep(0.01)
+            
+        agent.stop()
+        t.join(timeout=2.0)
+        
+        # Verify the context was recorded
+        assert cmd.id in agent.waiting_for_results
+        assert agent.waiting_for_results[cmd.id] == {"test": "context_data"}
 
 class TestDummyContext:
     def test_dummy_command_returns_result(self):
