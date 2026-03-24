@@ -10,7 +10,7 @@ class LLMAgent(Agent):
     An agent that processes LLM-related tasks and proactively guides the User.
     """
     # Verified Gemini Model IDs (as of March 2026)
-    GEMINI_3_0_FLASH = 'gemini-3.0-flash'          # verified
+    GEMINI_3_FLASH_PREVIEW = 'gemini-3-flash-preview'          # verified
     GEMINI_3_1_PRO_PREVIEW = 'gemini-3.1-pro-preview' # verified
     GEMINI_2_5_FLASH = 'gemini-2.5-flash'          # verified
     GEMINI_2_5_PRO = 'gemini-2.5-pro'              # verified
@@ -20,18 +20,27 @@ class LLMAgent(Agent):
         super().__init__(incoming_commands=["process_user_prompt"], bus=bus)
 
 
-    def handle_outbox_result(self, result: dict, context: dict):
-        """Reacts autonomously when the human formally replies to a tracked prompt."""
-        if context.get("action") == "awaiting_user_reply":
+    def handle_outbox_result(self, result: dict):
+        """Reacts autonomously when tracked prompts or processing commands resolve."""
+        command_name = result.get("command_name")
+        
+        if command_name == "prompt_user":
             user_text = result.get("result", "")
             
-            # Format our LLM reasoning...
-            next_question = f"LLM parsed '{user_text}'. Tell me more."
+            # Route human text to the real Gemini pipeline
+            cmd = AgentCommand(command_name="process_user_prompt", payload={"prompt": user_text})
+            self.bus.enqueue(cmd)
+            self.waiting_for_results.add(cmd.id)
             
-            # Autonomously fire the NEXT question down the pipe to maintain the Q&A loop
+        elif command_name == "process_user_prompt":
+            llm_result = result.get("result", {})
+            # Since Gemini returns a JSON dict, we assume we get a 'response' key based on instructions.
+            next_question = llm_result.get("response", str(llm_result))
+            
+            # Maintain the Q&A loop by actively asking the user the new question
             cmd = AgentCommandFactory.prompt_user({"question": next_question})
             self.bus.enqueue(cmd)
-            self.waiting_for_results[cmd.id] = {"action": "awaiting_user_reply"}
+            self.waiting_for_results.add(cmd.id)
 
     def execute(self, command):
         if command.command_name == "process_user_prompt":
@@ -40,11 +49,11 @@ class LLMAgent(Agent):
             prompt = command.payload.get("prompt", "")
             
             # Enforce that the LLM returns JSON by appending a rigid instruction
-            instruction = " You must return ONLY a raw JSON dictionary without any markdown formatting or code blocks."
+            instruction = " You must return ONLY a raw JSON dictionary without any markdown formatting or code blocks. The dictionary must contain exactly one key named 'response' carrying your conversational reply or question."
             full_prompt = prompt + instruction
             
             response = client.models.generate_content(
-                model=self.GEMINI_3_0_FLASH, 
+                model=self.GEMINI_3_FLASH_PREVIEW, 
                 contents=full_prompt
             )
             

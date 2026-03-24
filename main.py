@@ -1,5 +1,9 @@
 import threading
 import time
+from dotenv import load_dotenv
+
+# Load environment variables into os.environ before module evaluation
+load_dotenv()
 
 from bus import Bus
 from agent_command_factory import AgentCommandFactory
@@ -16,7 +20,7 @@ def main():
     initial_cmd = AgentCommandFactory.prompt_user({"question": "How can I start helping you today?"})
     llm_thread = threading.Thread(
         target=llm_agent.run, 
-        kwargs={"bootstrap_commands": [(initial_cmd, {"action": "awaiting_user_reply"})]}, 
+        kwargs={"bootstrap_commands": [initial_cmd]}, 
         daemon=True
     )
     llm_thread.start()

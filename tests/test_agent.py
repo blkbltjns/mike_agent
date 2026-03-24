@@ -96,7 +96,7 @@ class TestAgentThreadLoop:
         
         t = threading.Thread(
             target=agent.run, 
-            kwargs={"bootstrap_commands": [(cmd, {"test": "context_data"})]}
+            kwargs={"bootstrap_commands": [cmd]}
         )
         t.start()
         
@@ -109,9 +109,8 @@ class TestAgentThreadLoop:
         agent.stop()
         t.join(timeout=2.0)
         
-        # Verify the context was recorded
+        # Verify the command id was tracked natively
         assert cmd.id in agent.waiting_for_results
-        assert agent.waiting_for_results[cmd.id] == {"test": "context_data"}
 
 class TestDummyContext:
     def test_dummy_command_returns_result(self):

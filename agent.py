@@ -11,7 +11,7 @@ class Agent:
         self.incoming_commands = incoming_commands
         self.bus = bus
         self.active = False
-        self.waiting_for_results = {}
+        self.waiting_for_results = set()
 
     def execute(self, command: AgentCommand):
         """
@@ -20,7 +20,7 @@ class Agent:
         """
         raise NotImplementedError("Subclasses must implement explicit command execution.")
 
-    def handle_outbox_result(self, result: dict, context: dict):
+    def handle_outbox_result(self, result: dict):
         """
         Handle a tracked outbox result arriving back to the agent.
         Implemented by subclasses if they trace outbound commands.
@@ -29,13 +29,13 @@ class Agent:
 
     def _check_waiting_results(self) -> bool:
         """Poll the Outbox for tracked commands safely without blocking."""
-        # Use list() to take a static snapshot of the keys to avoid iteration mutation errors
-        for req_id, context in list(self.waiting_for_results.items()):
+        # Use tuple() to take a static snapshot of the keys to avoid iteration mutation errors
+        for req_id in tuple(self.waiting_for_results):
             result_item = self.bus.get_result(req_id)
             if result_item is not None:
                 # Handle it, then immediately delete and return to prevent side-effects
-                self.handle_outbox_result(result_item, context)
-                del self.waiting_for_results[req_id]
+                self.handle_outbox_result(result_item)
+                self.waiting_for_results.remove(req_id)
                 return True
                 
         return False
@@ -60,10 +60,9 @@ class Agent:
     def run(self, bootstrap_commands: list = None) -> None:
         """Run the agent loop continuously. Sleeps if no claimable commands."""
         if bootstrap_commands:
-            for bt_cmd, context in bootstrap_commands:
+            for bt_cmd in bootstrap_commands:
                 self.bus.enqueue(bt_cmd)
-                if context is not None:
-                    self.waiting_for_results[bt_cmd.id] = context
+                self.waiting_for_results.add(bt_cmd.id)
                     
         self.active = True
         while self.active:
