@@ -1,0 +1,2 @@
+# Problem to Vision Gaps
+*   **The "Deep Context Gathering" Philosophy Gap:** The Problem identifies "Shallow Context Gathering" as a core failure. The Vision commits to solving it, but contains no tenet that defines what the system's philosophy of context gathering actually is — meaning there is no guiding constraint for what constitutes sufficient investigation before an agent is considered to have understood something. "Proof over Assumption" addresses *false confidence* but doesn't address *how* the system avoids shallowness.

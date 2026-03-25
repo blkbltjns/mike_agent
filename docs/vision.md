@@ -1,9 +1,10 @@
 # Core Vision & Philosophy
 
-This system is being built to solve the severe limitations of current LLM coding tools (specifically shallow context gathering, relying on heuristics/naming conventions instead of tracing logic, and false confidence/hallucinations). 
+This system is a multi-agent coding assistant built in direct response to the problems described in `docs/problem.md`. Agents collaborate to solve real coding problems — reading code, tracing logic, generating changes, and verifying outcomes — until the work is actually done and done right.
+
+The aspiration is full autonomy. But the system is honest about where autonomy ends: when an agent cannot move forward without making an assumption, it turns to the human agent — not as an interruption or an escape hatch, but as a genuine peer who closes the gap.
 
 **Key Tenets:**
-* **Force Deep Investigation:** The system must definitively prove its understanding rather than making assumptions. 
-* **Verifiable Audit Trail:** Every thought, action, and discovery must be recorded.
-* **Deterministic Engine, Heuristic Brain:** Python handles the control flow, queues, and state. LLMs are used strictly for reasoning and deciding what command to issue next via structured outputs (JSON).
-* **The User is an Agent:** Human-in-the-loop is treated not as an external interruption, but as just another peer agent processing tasks from the queue.
+* **Agents as Peers:** The human operator holds the same standing as any other agent in the system — registered identically, participating in the same coordination loop.
+* **Proof over Assumption:** The system demonstrates understanding rather than asserting it. No agent moves forward on something it hasn't verified.
+* **Deterministic Engine, Heuristic Brain:** Python owns the control flow and state. LLMs reason and decide what to do next.

@@ -27,7 +27,7 @@
 
 ## 4. LLMAgent Execution Contract
 * **LLM Integration:** The `LLMAgent` is explicitly responsible for executing tasks by querying the Gemini model using the `google-genai` SDK and the `GEMINI_API_KEY` environment variable. 
-* **Verified Model Constraints:** The `LLMAgent` must use only verified Gemini model identifiers (e.g., `gemini-3-flash-preview` or `gemini-3.1-pro-preview`) to ensure reliability and compatibility.
+* **Verified Model Constraints:** The `LLMAgent` must use only verified Gemini model identifiers. All valid identifiers must be declared as named class constants on the `LLMAgent` (e.g., `GEMINI_3_FLASH_PREVIEW`, `GEMINI_3_1_PRO_PREVIEW`, `GEMINI_2_5_FLASH`, `GEMINI_2_5_PRO`, `GEMINI_3_1_FLASH_LITE`). Hardcoded model name strings outside of these constant declarations are forbidden.
 * **JSON Output Formatting:** The `LLMAgent` must guarantee that all final execution payloads written back to the Bus Outbox are strictly formatted as valid dictionaries/JSON objects. The agent acts as a structural wrapper, ensuring formatting compliance regardless of the raw text shape returned by the underlying LLM API.
 * **Stateless Prompt Execution:** The `LLMAgent` must treat every `process_user_prompt` command as a completely isolated, context-free API call. The `contents` field passed to the Gemini SDK must consist solely of the prompt string from the current command's payload, plus the JSON formatting instruction. The agent must never accumulate, prepend, or append prior conversation turns to the prompt. Each round is a fresh, single-turn call.
 
