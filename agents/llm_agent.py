@@ -60,9 +60,11 @@ class LLMAgent(Agent):
             # Guarantee the final execution payload is formatted strictly as a JSON dictionary
             try:
                 result_dict = json.loads(response.text)
+                self.waiting_for_results.add(command.id)
                 return result_dict
             except json.JSONDecodeError:
                 # Fallback to satisfy our structural wrapper specification constraint
+                self.waiting_for_results.add(command.id)
                 return {"error": "Failed to parse JSON", "raw_output": response.text}
             
         return None

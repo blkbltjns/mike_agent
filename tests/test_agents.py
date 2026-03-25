@@ -129,13 +129,15 @@ def test_e2e_live_simulation(capsys):
     
     # 1. Define the physical keystrokes we want the mock human to type into the terminal over time
     mock_inputs = [
-        # Wait half a sec for LLMAgent daemon thread to bootstrap its command, then pull from bus
-        {"wait": 0.5, "input": "view_incoming_commands"},
-        # Reply to the bootstrapped task ID 1
-        {"wait": 0.1, "input": "reply 1 Please reply exactly with the word 'ping', and nothing else."},
-        # Hold typing for 4 seconds so the daemon thread has time to contact Google APIs and write back
-        {"wait": 4.0, "input": "view_incoming_commands"},
-        # Shutdown
+        # Enter auto mode loop
+        {"wait": 0.5, "input": "enter_user_auto_mode"},
+        # Provide initial prompt for round 1
+        {"wait": 0.1, "input": "Please reply exactly with the word 'ping', and nothing else."},
+        # Wait 4 seconds for LLM to answer round 1, then send round 2 prompt
+        {"wait": 10.0, "input": "Please reply exactly with the word 'pong', and nothing else."},
+        # Wait 4 seconds for LLM to answer round 2, then exit auto mode
+        {"wait": 10.0, "input": "exit"},
+        # Exit main REPL
         {"wait": 0.1, "input": "exit"}
     ]
     
@@ -159,7 +161,66 @@ def test_e2e_live_simulation(capsys):
     stdout = captured.out.lower()
     
     # 3. Assertions proving routing success
-    assert "handled command 1." in stdout, "Mocked UserAgent did not correctly process the human reply"
+    assert "--- entering auto mode ---" in stdout, "Mocked UserAgent did not enter auto mode"
     
-    # Prove the LLM thread successfully resolved the network API logic and emitted the answer
+    # Prove round 1: LLM replied with 'ping'
     assert "ping" in stdout, f"E2E wait window ended before Gemini replied with 'ping', output was: {stdout}"
+    
+    # Prove round 2: LLM replied with 'pong'
+    assert "pong" in stdout, f"E2E wait window ended before Gemini replied with 'pong', output was: {stdout}"
+
+@patch('builtins.input', side_effect=["Hello round 1", "Hello round 2", "exit"])
+def test_user_agent_auto_mode_stateless(mock_input, setup_components):
+    """Spec Section 5 - Auto Mode Loop: Each round is stateless; the human's input for
+    each turn must be passed as a fresh, isolated prompt with no accumulated history."""
+    bus = setup_components
+    agent = UserAgent(bus=bus)
+    agent.active = True
+
+    # Pre-enqueue two prompt_user commands to give the auto mode loop responses to claim
+    prompt_cmd_1 = AgentCommandFactory.prompt_user({"question": "LLM question 1?"})
+    prompt_cmd_2 = AgentCommandFactory.prompt_user({"question": "LLM question 2?"})
+    bus.enqueue(prompt_cmd_1)
+    bus.enqueue(prompt_cmd_2)
+
+    agent._enter_auto_mode()
+
+    # Round 1: initial process_user_prompt must contain only the round 1 text
+    initial_cmd = bus.claim(["process_user_prompt"])
+    assert initial_cmd is not None
+    assert initial_cmd.payload["prompt"] == "Hello round 1"
+    assert "Hello round 2" not in initial_cmd.payload["prompt"]
+
+    # Round 2: outbox result for prompt_cmd_1 must contain only the round 2 reply, not accumulated history
+    result = bus.get_result(prompt_cmd_1.id)
+    assert result is not None
+    assert result["result"] == "Hello round 2"
+    assert "Hello round 1" not in result["result"]
+
+@patch.dict('os.environ', {'GEMINI_API_KEY': 'fake_test_key'})
+@patch('agents.llm_agent.genai.Client')
+def test_llm_agent_stateless_prompt_execution(mock_client_class, setup_components):
+    """Spec Section 4 - Stateless Prompt Execution: every process_user_prompt command
+    must be a completely isolated, context-free call to the Gemini SDK."""
+    mock_client_instance = mock_client_class.return_value
+    mock_client_instance.models.generate_content.return_value.text = '{"response": "mocked reply"}'
+
+    bus = setup_components
+    agent = LLMAgent(bus=bus)
+
+    from agent_command import AgentCommand
+    cmd1 = AgentCommand(command_name="process_user_prompt", payload={"prompt": "first prompt text"})
+    cmd2 = AgentCommand(command_name="process_user_prompt", payload={"prompt": "second prompt text"})
+
+    agent.execute(cmd1)
+    agent.execute(cmd2)
+
+    assert mock_client_instance.models.generate_content.call_count == 2
+
+    call_1_contents = mock_client_instance.models.generate_content.call_args_list[0].kwargs["contents"]
+    call_2_contents = mock_client_instance.models.generate_content.call_args_list[1].kwargs["contents"]
+
+    # Each call must only contain its own prompt — no history from the other round
+    assert "first prompt text" in call_1_contents
+    assert "first prompt text" not in call_2_contents
+    assert "second prompt text" in call_2_contents

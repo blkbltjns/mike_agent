@@ -23,12 +23,12 @@ The system decouples *intent* (what needs to be done) from *execution* (who does
 All agents operate on the same basic loop: Poll Bus → Claim `AgentCommand` → Execute → Write result to Bus. Agents expose a `stop()` method for graceful shutdown. Execution logic lives within the Agent context itself.
 
 * **LLM Worker Agents:** Handle reasoning tasks. Output strictly formatted JSON.
-* **The User Agent (Human):** Registered identically to any other agent. The `UserAgent` operates via a synchronous polling terminal REPL, allowing the human to proactively and autonomously type (`view_incoming_commands`, `reply`, `enqueue`, `list_commands`, `exit`).
+* **The User Agent (Human):** Registered identically to any other agent. The `UserAgent` operates via a synchronous polling terminal REPL, allowing the human to proactively and autonomously type (`view_incoming_commands`, `reply`, `enqueue`, `list_commands`, `enter_user_auto_mode`, `exit`). The `enter_user_auto_mode` command is a self-routed command that the UserAgent both enqueues and handles, entering a streamlined dialogue loop that automates the claim/reply cycle with the LLM agent.
 
 ## 4. Execution Flow & Cognitive Loop
 The system runs as an autonomous, asynchronous `while` loop driven by Python. Each agent runs in its own `threading.Thread`.
 
-1. **Initiation:** The overarching script bootstraps the system by injecting initial proactive target commands directly into an agent's `run` loop as arguments during thread startup, allowing any agent to seed the Bus.
+1. **Initiation:** The system starts with an empty Bus. Agents may seed the Bus either programmatically via optional `bootstrap_commands` passed to an agent's `run` method during thread startup, or organically through agent execution (e.g., the UserAgent entering auto mode from the REPL).
 2. **Processing:** Agents concurrently poll and claim `AgentCommand` objects they own from the Inbox.
 3. **Async Outbox Tracking:** An agent constructs a new `AgentCommand` output, enqueues it to the Bus, and instantly assigns its generated `.id` internally to a state tracker (`waiting_for_results`).
 4. **Resumption:** Agents autonomously parse the Outbox against their state tracker concurrently. When the target Outbox resolution occurs, the agent consumes it via a routing continuation handler.

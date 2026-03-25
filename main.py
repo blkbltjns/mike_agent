@@ -16,11 +16,10 @@ def main():
     user_agent = UserAgent(bus=bus)
     llm_agent = LLMAgent(bus=bus)
 
-    # The system bootstraps the workflow by injecting the initial command target
-    initial_cmd = AgentCommandFactory.prompt_user({"question": "How can I start helping you today?"})
+    # The system starts empty; the UserAgent can proactively seed via auto mode
     llm_thread = threading.Thread(
         target=llm_agent.run, 
-        kwargs={"bootstrap_commands": [initial_cmd]}, 
+        kwargs={}, 
         daemon=True
     )
     llm_thread.start()
