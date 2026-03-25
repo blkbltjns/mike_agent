@@ -18,6 +18,10 @@ class AgentCommandFactory:
     def process_user_prompt(payload: dict = None) -> AgentCommand:
         return AgentCommand("process_user_prompt", payload)
 
+    @staticmethod
+    def read_file(path: str) -> AgentCommand:
+        return AgentCommand("read_file", {"path": path})
+
     @classmethod
     def get_all_commands(cls) -> list:
-        return ["prompt_user", "process_user_prompt", "enter_user_auto_mode"]
+        return ["prompt_user", "process_user_prompt", "enter_user_auto_mode", "read_file"]

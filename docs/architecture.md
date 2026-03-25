@@ -22,7 +22,7 @@ The system decouples *intent* (what needs to be done) from *execution* (who does
 ## 3. Agent Topology
 All agents operate on the same basic loop: Poll Bus → Claim `AgentCommand` → Execute → Write result to Bus. Agents expose a `stop()` method for graceful shutdown. Execution logic lives within the Agent context itself.
 
-* **LLM Worker Agents:** Handle reasoning tasks. Output strictly formatted JSON.
+* **LLM Worker Agents:** Handle reasoning tasks. Output strictly formatted JSON. The LLMAgent may act as its own tool executor. When its LLM response signals a tool call, the agent enqueues that command to the Bus, registers its ID in `waiting_for_results`, then claims and executes the command itself — writing the result to the Outbox. Reasoning resumes once the Outbox result is available. This preserves the full audit trail through the Bus while keeping tool execution under the LLMAgent's jurisdiction. `read_file` is the first defined tool command, with a payload containing a `path` string.
 * **The User Agent (Human):** Registered identically to any other agent. The `UserAgent` operates via a synchronous polling terminal REPL, allowing the human to proactively and autonomously type (`view_incoming_commands`, `reply`, `enqueue`, `list_commands`, `enter_user_auto_mode`, `exit`). The `enter_user_auto_mode` command is a self-routed command that the UserAgent both enqueues and handles, entering a streamlined dialogue loop that automates the claim/reply cycle with the LLM agent.
 
 ## 4. Execution Flow & Cognitive Loop

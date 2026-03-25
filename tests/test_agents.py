@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock, mock_open
 from bus import Bus
 from agents.user_agent import UserAgent
 from agents.llm_agent import LLMAgent
@@ -74,7 +74,7 @@ def test_llm_agent_gemini_integration(mock_client_class, setup_components):
     mock_client_class.assert_called()
     mock_client_instance.models.generate_content.assert_called_with(
         model=agent.GEMINI_3_FLASH_PREVIEW,
-        contents="Hello You must return ONLY a raw JSON dictionary without any markdown formatting or code blocks. The dictionary must contain exactly one key named 'response' carrying your conversational reply or question."
+        contents="Hello" + agent.TOOL_INSTRUCTION
     )
     
     # 2. Verify Specification: strict JSON dictionary formatting output
@@ -224,3 +224,58 @@ def test_llm_agent_stateless_prompt_execution(mock_client_class, setup_component
     assert "first prompt text" in call_1_contents
     assert "first prompt text" not in call_2_contents
     assert "second prompt text" in call_2_contents
+
+
+def test_llm_agent_read_file_command(setup_components):
+    """Spec Section 2 - read_file Command: the LLMAgent reads the file at the given path
+    and writes the raw contents to the Outbox."""
+    bus = setup_components
+    agent = LLMAgent(bus=bus)
+
+    test_file_path = "test_subject/utils.py"
+    cmd = AgentCommandFactory.read_file(test_file_path)
+    bus.enqueue(cmd)
+
+    agent._execute_next_command()
+
+    result = bus.get_result(cmd.id)
+    assert result is not None
+
+    with open(test_file_path, "r") as f:
+        expected_content = f.read()
+
+    assert result["result"] == expected_content
+
+
+@patch('builtins.open', mock_open(read_data="fake file content"))
+@patch.dict('os.environ', {'GEMINI_API_KEY': 'fake_test_key'})
+@patch('agents.llm_agent.genai.Client')
+def test_llm_agent_tool_loop(mock_client_class, setup_components):
+    """Spec Section 4 - Tool Loop: the LLMAgent must not write a final result to the Outbox
+    until all tool requests are resolved."""
+    response_1 = MagicMock()
+    response_1.text = '{"tool": "read_file", "path": "test_subject/utils.py"}'
+    response_2 = MagicMock()
+    response_2.text = '{"response": "the bug is in the range function"}'
+
+    mock_client_instance = mock_client_class.return_value
+    mock_client_instance.models.generate_content.side_effect = [response_1, response_2]
+
+    bus = setup_components
+    agent = LLMAgent(bus=bus)
+
+    cmd = AgentCommandFactory.process_user_prompt({"prompt": "Find the bug."})
+    bus.enqueue(cmd)
+
+    # No result before processing
+    assert bus.get_result(cmd.id) is None
+
+    agent._execute_next_command()
+
+    # Gemini must have been called exactly twice (once for tool detection, once for final answer)
+    assert mock_client_instance.models.generate_content.call_count == 2
+
+    # The final result must only be written after the full tool loop resolves
+    result = bus.get_result(cmd.id)
+    assert result is not None
+    assert result["result"] == {"response": "the bug is in the range function"}
