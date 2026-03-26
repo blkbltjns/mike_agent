@@ -7,15 +7,15 @@ class AgentCommandFactory:
         raise TypeError("AgentCommandFactory is not meant to be instantiated. Use its static methods directly.")
 
     @staticmethod
-    def prompt_user(payload: dict = None) -> AgentCommand:
+    def prompt_user(payload: dict | None = None) -> AgentCommand:
         return AgentCommand("prompt_user", payload)
 
     @staticmethod
-    def enter_user_auto_mode(payload: dict = None) -> AgentCommand:
+    def enter_user_auto_mode(payload: dict | None = None) -> AgentCommand:
         return AgentCommand("enter_user_auto_mode", payload)
 
     @staticmethod
-    def process_user_prompt(payload: dict = None) -> AgentCommand:
+    def process_user_prompt(payload: dict | None = None) -> AgentCommand:
         return AgentCommand("process_user_prompt", payload)
 
     @staticmethod
@@ -23,7 +23,7 @@ class AgentCommandFactory:
         return AgentCommand("read_file", {"path": path})
 
     @staticmethod
-    def gather_context(payload: dict = None) -> AgentCommand:
+    def gather_context(payload: dict | None = None) -> AgentCommand:
         return AgentCommand("gather_context", payload)
 
     @staticmethod

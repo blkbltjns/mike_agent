@@ -30,7 +30,7 @@
   * Write the result directly back to the Bus Outbox, guaranteeing that `request_id` maps perfectly to the original claimed `AgentCommand.id`.
 * **State Tracking and Resumption:** Agents tracking pending outbound operations via `waiting_for_results` must autonomously poll the Bus `Outbox`. When a response matching a tracked `request_id` arrives, the agent resumes execution logic processing the new dependency.
 * **Debug Mode Handling:** The Base Agent must implicitly intercept `toggle_debug_logging` broadcasts during its Inbox polling cycle to update its active operational debug state. 
-* **Debug Output:** When debug mode is active, the agent must print execution tracing (e.g., claiming assignments or finishing tasks) to the user terminal and append the logs to a timestamped file. A completely new timestamped file must be dynamically created whenever debug logging transitions to `true`.
+* **Debug Output:** When debug mode is active, the agent must print execution tracing (e.g., claiming assignments or finishing tasks) to the user terminal and append the logs to a timestamped file in a dedicated `logs` directory. A completely new timestamped file must be dynamically created whenever debug logging transitions to `true`.
 
 ## 4. LLMAgent Execution Contract
 * **LLM Integration:** The `LLMAgent` is explicitly responsible for executing tasks by querying the Gemini model using the `google-genai` SDK and the `GEMINI_API_KEY` environment variable. 

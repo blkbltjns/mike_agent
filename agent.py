@@ -36,7 +36,9 @@ class Agent:
     def _handle_debug_toggle(self, enabled: bool):
         if enabled and not self._debug_enabled:
             import datetime
-            Agent._shared_debug_file = f"debug_log_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+            import os
+            os.makedirs("logs", exist_ok=True)
+            Agent._shared_debug_file = f"logs/debug_log_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
             self._debug_enabled = True
             self._log_debug("Debug logging enabled.")
         elif not enabled and self._debug_enabled:
