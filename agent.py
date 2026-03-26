@@ -21,6 +21,15 @@ class Agent:
         self.waiting_for_results = set()
         self._debug_enabled = False
 
+    def issue_command(self, command: AgentCommand) -> None:
+        """Helper method to construct a command, enqueue it to the Bus via broadcast_to_one, and instantly track its result."""
+        self.bus.broadcast_to_one(command)
+        self.waiting_for_results.add(command.id)
+
+    def issue_broadcast_command(self, command: AgentCommand) -> None:
+        """Helper method to cast a broadcast command with no tracking."""
+        self.bus.broadcast_to_all(command)
+
     def _log_debug(self, msg: str):
         if not self._debug_enabled:
             return
@@ -99,8 +108,7 @@ class Agent:
         """The async main loop hosted inside the agent's thread."""
         if bootstrap_commands:
             for bt_cmd in bootstrap_commands:
-                self.bus.broadcast_to_one(bt_cmd)
-                self.waiting_for_results.add(bt_cmd.id)
+                self.issue_command(bt_cmd)
 
         self.active = True
         while self.active:

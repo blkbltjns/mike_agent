@@ -28,8 +28,7 @@ class LLMAgent(Agent):
 
             # Route human text to the real Gemini pipeline
             cmd = AgentCommand(command_name="process_user_prompt", payload={"prompt": user_text})
-            self.bus.broadcast_to_one(cmd)
-            self.waiting_for_results.add(cmd.id)
+            self.issue_command(cmd)
 
     async def handle_command(self, command):
         if command.command_name == "read_file":
@@ -69,7 +68,7 @@ class LLMAgent(Agent):
                 if tool_cmd_dict.get("tool") == "read_file":
                     path = tool_cmd_dict.get("path", "")
                     read_cmd = AgentCommandFactory.read_file(path)
-                    self.bus.broadcast_to_one(read_cmd)
+                    self.issue_command(read_cmd)
                     claimed_read = self.bus.claim(["read_file"], self.id)
                     if claimed_read:
                         file_content = await self.handle_command(claimed_read)
@@ -99,7 +98,7 @@ class LLMAgent(Agent):
 
             # Enqueue gather_context, claim and execute it inline
             gather_cmd = AgentCommandFactory.gather_context({"text": context_description})
-            self.bus.broadcast_to_one(gather_cmd)
+            self.issue_command(gather_cmd)
             claimed_gather = self.bus.claim(["gather_context"], self.id)
             accumulated_context = await self.handle_command(claimed_gather)
             self.bus.write_result(
