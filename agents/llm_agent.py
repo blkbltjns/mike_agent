@@ -28,15 +28,7 @@ class LLMAgent(Agent):
 
             # Route human text to the real Gemini pipeline
             cmd = AgentCommand(command_name="process_user_prompt", payload={"prompt": user_text})
-            self.bus.enqueue(cmd)
-            self.waiting_for_results.add(cmd.id)
-
-        elif command_name == "process_user_prompt":
-            llm_text = result.get("result", "")
-
-            # Maintain the Q&A loop by actively asking the user the new question
-            cmd = AgentCommandFactory.prompt_user({"question": str(llm_text)})
-            self.bus.enqueue(cmd)
+            self.bus.broadcast_to_one(cmd)
             self.waiting_for_results.add(cmd.id)
 
     async def handle_command(self, command):
@@ -77,8 +69,8 @@ class LLMAgent(Agent):
                 if tool_cmd_dict.get("tool") == "read_file":
                     path = tool_cmd_dict.get("path", "")
                     read_cmd = AgentCommandFactory.read_file(path)
-                    self.bus.enqueue(read_cmd)
-                    claimed_read = self.bus.claim(["read_file"])
+                    self.bus.broadcast_to_one(read_cmd)
+                    claimed_read = self.bus.claim(["read_file"], self.id)
                     if claimed_read:
                         file_content = await self.handle_command(claimed_read)
                         self.bus.write_result(
@@ -107,8 +99,8 @@ class LLMAgent(Agent):
 
             # Enqueue gather_context, claim and execute it inline
             gather_cmd = AgentCommandFactory.gather_context({"text": context_description})
-            self.bus.enqueue(gather_cmd)
-            claimed_gather = self.bus.claim(["gather_context"])
+            self.bus.broadcast_to_one(gather_cmd)
+            claimed_gather = self.bus.claim(["gather_context"], self.id)
             accumulated_context = await self.handle_command(claimed_gather)
             self.bus.write_result(
                 claimed_gather.id, claimed_gather.command_name,

@@ -33,27 +33,27 @@ class TestAgentExecuteNextCommand:
 
     def test_returns_true_when_processed(self):
         bus, agent = make_system()
-        bus.enqueue(AgentCommand("dummy_command"))
+        bus.broadcast_to_one(AgentCommand("dummy_command"))
         result = asyncio.run(agent._execute_next_command())
         assert result is True
 
     def test_claims_command_from_bus(self):
         bus, agent = make_system()
-        bus.enqueue(AgentCommand("dummy_command"))
+        bus.broadcast_to_one(AgentCommand("dummy_command"))
         asyncio.run(agent._execute_next_command())
-        assert bus.claim(["dummy_command"]) is None
+        assert bus.claim(["dummy_command"], "test_agent") is None
 
     def test_writes_result_to_outbox(self):
         bus, agent = make_system()
         cmd = AgentCommand("dummy_command")
-        bus.enqueue(cmd)
+        bus.broadcast_to_one(cmd)
         asyncio.run(agent._execute_next_command())
         assert bus.get_result(cmd.id) is not None
 
     def test_outbox_refs_command(self):
         bus, agent = make_system()
         cmd = AgentCommand("dummy_command")
-        bus.enqueue(cmd)
+        bus.broadcast_to_one(cmd)
         asyncio.run(agent._execute_next_command())
         entry = bus.get_result(cmd.id)
         assert entry["request_id"] == cmd.id
@@ -62,10 +62,19 @@ class TestAgentExecuteNextCommand:
 
     def test_ignores_unowned_command(self):
         bus, agent = make_system()
-        bus.enqueue(AgentCommand("some_other_command"))
+        bus.broadcast_to_one(AgentCommand("some_other_command"))
         result = asyncio.run(agent._execute_next_command())
         assert result is False
-        assert bus.claim(["some_other_command"]) is not None
+        assert bus.claim(["some_other_command"], "test_agent") is not None
+
+    def test_agent_has_unique_id(self):
+        """Spec Section 3 - Every Agent instance must be assigned a globally unique string id at construction time."""
+        bus = Bus()
+        agent1 = DummyAgent(bus=bus)
+        agent2 = DummyAgent(bus=bus)
+        assert agent1.id != agent2.id
+        assert isinstance(agent1.id, str)
+        assert len(agent1.id) > 0
 
 
 class TestAgentThreadLoop:
@@ -74,8 +83,8 @@ class TestAgentThreadLoop:
         cmd1 = AgentCommand("dummy_command")
         cmd2 = AgentCommand("dummy_command")
 
-        bus.enqueue(cmd1)
-        bus.enqueue(cmd2)
+        bus.broadcast_to_one(cmd1)
+        bus.broadcast_to_one(cmd2)
 
         t = threading.Thread(target=agent.run)
         t.start()
@@ -86,7 +95,7 @@ class TestAgentThreadLoop:
         agent.stop()
         t.join(timeout=2.0)
 
-        assert bus.claim(["dummy_command"]) is None
+        assert bus.claim(["dummy_command"], "test_agent") is None
         assert bus.get_result(cmd1.id) is not None
         assert bus.get_result(cmd2.id) is not None
 
@@ -104,7 +113,7 @@ class TestAgentThreadLoop:
         # Verify the command hit the bus by claiming it manually
         fetched_cmd = None
         while fetched_cmd is None:
-            fetched_cmd = bus.claim(["unowned_command"])
+            fetched_cmd = bus.claim(["unowned_command"], "test_agent")
             time.sleep(0.01)
 
         agent.stop()

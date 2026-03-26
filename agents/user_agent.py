@@ -40,8 +40,14 @@ class UserAgent(Agent):
                     self._enter_auto_mode()
                 elif cmd == "exit" or cmd == "quit":
                     self.stop()
+                elif cmd == "debug" and arg in ["on", "off"]:
+                    enabled = (arg == "on")
+                    from agent_command_factory import AgentCommandFactory
+                    toggle_cmd = AgentCommandFactory.toggle_debug_logging(enabled)
+                    self.bus.broadcast_to_all(toggle_cmd)
+                    print(f"Broadcasted toggle_debug_logging with enabled={enabled}")
                 else:
-                    print("Unknown command. Try: view_incoming_commands, reply <id> <text>, enqueue <command> <payload_json>, list_commands, enter_user_auto_mode")
+                    print("Unknown command. Try: view_incoming_commands, reply <id> <text>, enqueue <command> <payload_json>, list_commands, enter_user_auto_mode, debug on/off")
             except (KeyboardInterrupt, EOFError):
                 self.stop()
                 print("\nExiting UserAgent loop.")
@@ -49,7 +55,7 @@ class UserAgent(Agent):
     def _view_incoming(self):
         # Sweeps bus for all incoming commands
         while True:
-            command = self.bus.claim(self.incoming_commands)
+            command = self.bus.claim(self.incoming_commands, self.id)
             if not command:
                 break
             self.pending_tasks[self.task_counter] = command
@@ -110,16 +116,16 @@ class UserAgent(Agent):
             
         from agent_command import AgentCommand
         cmd = AgentCommand(command_name, payload)
-        self.bus.enqueue(cmd)
+        self.bus.broadcast_to_one(cmd)
         print(f"Enqueued {command_name} with payload {payload}")
 
     def _enter_auto_mode(self):
         cmd = AgentCommandFactory.enter_user_auto_mode()
-        self.bus.enqueue(cmd)
+        self.bus.broadcast_to_one(cmd)
         
         claimed_cmd = None
         while claimed_cmd is None and self.active:
-            claimed_cmd = self.bus.claim(["enter_user_auto_mode"])
+            claimed_cmd = self.bus.claim(["enter_user_auto_mode"], self.id)
             if not claimed_cmd:
                 import time
                 time.sleep(0.1)
@@ -135,21 +141,23 @@ class UserAgent(Agent):
             return
             
         process_cmd = AgentCommandFactory.process_user_prompt({"prompt": initial_prompt})
-        self.bus.enqueue(process_cmd)
+        self.bus.broadcast_to_one(process_cmd)
+        current_tracking_id = process_cmd.id
         
         print("Waiting for LLM reply...")
         import time
         while self.active:
-            incoming = self.bus.claim(["prompt_user"])
-            if incoming:
-                print("\n[LLM_AGENT]: " + incoming.payload.get("question", ""))
+            result_item = self.bus.get_result(current_tracking_id)
+            if result_item is not None:
+                print("\n[LLM_AGENT]: " + str(result_item.get("result", "")))
                 reply = input("[YOU] (type 'exit' to leave auto mode)> ").strip()
                 if reply.lower() == 'exit':
-                    self.bus.write_result(incoming.id, incoming.command_name, "(user exited auto mode)", self.__class__.__name__)
                     print("--- Exiting Auto Mode ---")
                     break
                 else:
-                    self.bus.write_result(incoming.id, incoming.command_name, reply, self.__class__.__name__)
+                    new_cmd = AgentCommandFactory.process_user_prompt({"prompt": reply})
+                    self.bus.broadcast_to_one(new_cmd)
+                    current_tracking_id = new_cmd.id
                     print("Waiting for LLM reply...")
             else:
                 try:

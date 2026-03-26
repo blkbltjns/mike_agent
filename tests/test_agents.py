@@ -17,7 +17,7 @@ def test_user_agent(mock_input, setup_components):
     agent = UserAgent(bus=bus)
     
     cmd = AgentCommandFactory.prompt_user({"question": "How are you?"})
-    bus.enqueue(cmd)
+    bus.broadcast_to_one(cmd)
     
     agent.run()
     
@@ -32,9 +32,9 @@ def test_llm_agent_tracker(mock_execute, setup_components):
     
     # Simulate being bootstrapped by the main.py entrypoint
     cmd = AgentCommandFactory.prompt_user({"question": "Hello!"})
-    bus.enqueue(cmd)
+    bus.broadcast_to_one(cmd)
     agent.waiting_for_results.add(cmd.id)    
-    cmd = bus.claim(["prompt_user"])
+    cmd = bus.claim(["prompt_user"], "test_manual")
     assert cmd is not None
     assert cmd.payload["question"] == "Hello!"
     
@@ -44,15 +44,6 @@ def test_llm_agent_tracker(mock_execute, setup_components):
     asyncio.run(agent._execute_next_command())
     
     assert mock_execute.call_count == 1
-    
-    # Tick 2: Outbox triggers handle_outbox_result with the mocked Gemini response, enqueues prompt_user
-    asyncio.run(agent._execute_next_command())
-    
-    final_cmd = bus.claim(["prompt_user"])
-    assert final_cmd is not None
-    assert final_cmd.payload["question"] == "I am the mocked Gemini response!"
-    assert final_cmd.id in agent.waiting_for_results
-
 
 def test_live_gemini_integration_loop(setup_components):
     import os
@@ -68,11 +59,11 @@ def test_live_gemini_integration_loop(setup_components):
     
     # 2. Bootstrap system with a prompt wait
     initial_cmd = AgentCommandFactory.prompt_user({"question": "Say exactly 'ping'."})
-    bus.enqueue(initial_cmd)
+    bus.broadcast_to_one(initial_cmd)
     agent.waiting_for_results.add(initial_cmd.id)
     
     # Claim it so it doesn't stay unhandled 
-    bus.claim(["prompt_user"])
+    bus.claim(["prompt_user"], "test_manual")
     
     # 3. Simulate human reacting directly back to the outbox
     bus.write_result(initial_cmd.id, initial_cmd.command_name, "Please reply exactly with the word 'ping', and nothing else", "MockUserAgent")
@@ -81,15 +72,14 @@ def test_live_gemini_integration_loop(setup_components):
     # handle_command() sweeps it immediately and queries the real live Google APIs
     asyncio.run(agent._execute_next_command())
     
-    # 5. Second tick: outbox mapping generates a generic conversational `prompt_user` command
-    asyncio.run(agent._execute_next_command())
+    # 5. Verify completion
+    # The LLMAgent now writes the response directly to the Outbox. We verify by scanning the Outbox.
+    items = [item for item in bus._outbox.items() if item["command_name"] == "process_user_prompt"]
+    assert len(items) > 0, "No process_user_prompt result found in Outbox"
     
-    # 6. Verify completion
-    next_question_cmd = bus.claim(["prompt_user"])
-    assert next_question_cmd is not None
-    assert "question" in next_question_cmd.payload
+    answer_result = items[-1]["result"]
+    answer_text = str(answer_result).lower()
     
-    answer_text = next_question_cmd.payload["question"].lower()
     assert "ping" in answer_text, f"Gemini did not respond with 'ping', got instead: {answer_text}"
 
 @patch('agents.llm_agent.LLMAgent.GEMINI_3_FLASH_PREVIEW', 'gemini-3.1-flash-lite-preview')
@@ -148,25 +138,29 @@ def test_user_agent_auto_mode_stateless(mock_input, setup_components):
     agent = UserAgent(bus=bus)
     agent.active = True
 
-    # Pre-enqueue two prompt_user commands to give the auto mode loop responses to claim
-    prompt_cmd_1 = AgentCommandFactory.prompt_user({"question": "LLM question 1?"})
-    prompt_cmd_2 = AgentCommandFactory.prompt_user({"question": "LLM question 2?"})
-    bus.enqueue(prompt_cmd_1)
-    bus.enqueue(prompt_cmd_2)
+    # We must patch get_result so that the synchronous while loop immediately finds an Outbox response to any process_user_prompt
+    def mock_get_result(request_id):
+        return {"result": f"LLM reply for {request_id}", "command_name": "process_user_prompt", "id": "msg_xyz"}
+        
+    with patch.object(bus, 'get_result', side_effect=mock_get_result):
+        agent._enter_auto_mode()
 
-    agent._enter_auto_mode()
+    # Exhaust the bus claims
+    commands = []
+    while True:
+        c = bus.claim(["process_user_prompt"], "test_manual")
+        if not c:
+            break
+        commands.append(c)
 
     # Round 1: initial process_user_prompt must contain only the round 1 text
-    initial_cmd = bus.claim(["process_user_prompt"])
-    assert initial_cmd is not None
-    assert initial_cmd.payload["prompt"] == "Hello round 1"
-    assert "Hello round 2" not in initial_cmd.payload["prompt"]
+    assert len(commands) == 2
+    assert commands[0].payload["prompt"] == "Hello round 1"
+    assert "Hello round 2" not in commands[0].payload["prompt"]
 
     # Round 2: outbox result for prompt_cmd_1 must contain only the round 2 reply, not accumulated history
-    result = bus.get_result(prompt_cmd_1.id)
-    assert result is not None
-    assert result["result"] == "Hello round 2"
-    assert "Hello round 1" not in result["result"]
+    assert commands[1].payload["prompt"] == "Hello round 2"
+    assert "Hello round 1" not in commands[1].payload["prompt"]
 
 
 
@@ -178,7 +172,7 @@ def test_llm_agent_read_file_command(setup_components):
 
     test_file_path = "test_subject/utils.py"
     cmd = AgentCommandFactory.read_file(test_file_path)
-    bus.enqueue(cmd)
+    bus.broadcast_to_one(cmd)
 
     asyncio.run(agent._execute_next_command())
 

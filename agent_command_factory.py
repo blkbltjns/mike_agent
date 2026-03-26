@@ -26,6 +26,10 @@ class AgentCommandFactory:
     def gather_context(payload: dict = None) -> AgentCommand:
         return AgentCommand("gather_context", payload)
 
+    @staticmethod
+    def toggle_debug_logging(enabled: bool) -> AgentCommand:
+        return AgentCommand("toggle_debug_logging", {"enabled": enabled})
+
     @classmethod
     def get_all_commands(cls) -> list:
-        return ["prompt_user", "process_user_prompt", "enter_user_auto_mode", "read_file", "gather_context"]
+        return ["prompt_user", "process_user_prompt", "enter_user_auto_mode", "read_file", "gather_context", "toggle_debug_logging"]

@@ -6,7 +6,6 @@ class AgentCommand:
         self.id = str(uuid.uuid4())
         self.command_name = command_name
         self.payload = payload or {}
-        self.is_claimed = False
 
     def __repr__(self):
         return f"<AgentCommand {self.id} | {self.command_name}>"
