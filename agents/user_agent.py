@@ -11,6 +11,10 @@ class UserAgent(Agent):
         self.pending_tasks = {}
         self.task_counter = 1
 
+    async def handle_command(self, command):
+        """UserAgent handles commands via the REPL loop, not this pathway."""
+        pass
+
     def run(self) -> None:
         """Override the base run loop to provide a synchronous REPL."""
         self.active = True

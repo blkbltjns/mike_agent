@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from unittest.mock import patch, MagicMock, mock_open
 from bus import Bus
@@ -24,7 +25,7 @@ def test_user_agent(mock_input, setup_components):
     assert result is not None
     assert result["result"] == "Fine, thanks!"
 
-@patch.object(LLMAgent, 'handle_command', return_value={"response": "I am the mocked Gemini response!"})
+@patch.object(LLMAgent, 'handle_command', return_value="I am the mocked Gemini response!")
 def test_llm_agent_tracker(mock_execute, setup_components):
     bus = setup_components
     agent = LLMAgent(bus=bus)
@@ -39,13 +40,13 @@ def test_llm_agent_tracker(mock_execute, setup_components):
     
     bus.write_result(cmd.id, cmd.command_name, "I am an end user", "UserAgent")
     
-    # Tick 1: Outbox triggers handle_outbox_result, enqueues process_user_prompt, and the inbox immediately claims it and calls mocked execute()
-    agent._execute_next_command()
+    # Tick 1: Outbox triggers handle_outbox_result, enqueues process_user_prompt, and the inbox immediately claims it and calls mocked handle_command()
+    asyncio.run(agent._execute_next_command())
     
     assert mock_execute.call_count == 1
     
     # Tick 2: Outbox triggers handle_outbox_result with the mocked Gemini response, enqueues prompt_user
-    agent._execute_next_command()
+    asyncio.run(agent._execute_next_command())
     
     final_cmd = bus.claim(["prompt_user"])
     assert final_cmd is not None
@@ -77,11 +78,11 @@ def test_live_gemini_integration_loop(setup_components):
     bus.write_result(initial_cmd.id, initial_cmd.command_name, "Please reply exactly with the word 'ping', and nothing else", "MockUserAgent")
     
     # 4. First tick: outbox routes human text into a `process_user_prompt` command
-    # execute() sweeps it immediately and queries the real live Google APIs
-    agent._execute_next_command()
+    # handle_command() sweeps it immediately and queries the real live Google APIs
+    asyncio.run(agent._execute_next_command())
     
     # 5. Second tick: outbox mapping generates a generic conversational `prompt_user` command
-    agent._execute_next_command()
+    asyncio.run(agent._execute_next_command())
     
     # 6. Verify completion
     next_question_cmd = bus.claim(["prompt_user"])
@@ -179,7 +180,7 @@ def test_llm_agent_read_file_command(setup_components):
     cmd = AgentCommandFactory.read_file(test_file_path)
     bus.enqueue(cmd)
 
-    agent._execute_next_command()
+    asyncio.run(agent._execute_next_command())
 
     result = bus.get_result(cmd.id)
     assert result is not None
