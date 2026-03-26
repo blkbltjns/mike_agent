@@ -25,62 +25,7 @@ def test_user_agent(mock_input, setup_components):
     assert result is not None
     assert result["result"] == "Fine, thanks!"
 
-@patch.object(LLMAgent, 'handle_command', return_value="I am the mocked Gemini response!")
-def test_llm_agent_tracker(mock_execute, setup_components):
-    bus = setup_components
-    agent = LLMAgent(bus=bus)
-    
-    # Simulate being bootstrapped by the main.py entrypoint
-    cmd = AgentCommandFactory.prompt_user({"question": "Hello!"})
-    bus.broadcast_to_one(cmd)
-    agent.waiting_for_results.add(cmd.id)    
-    cmd = bus.claim(["prompt_user"], "test_manual")
-    assert cmd is not None
-    assert cmd.payload["question"] == "Hello!"
-    
-    bus.write_result(cmd.id, cmd.command_name, "I am an end user", "UserAgent")
-    
-    # Tick 1: Outbox triggers handle_outbox_result, enqueues process_user_prompt, and the inbox immediately claims it and calls mocked handle_command()
-    asyncio.run(agent._execute_next_command())
-    
-    assert mock_execute.call_count == 1
 
-def test_live_gemini_integration_loop(setup_components):
-    import os
-    from dotenv import load_dotenv
-    # Ensure variables are mapped for live API execution
-    load_dotenv()
-    
-    bus = setup_components
-    agent = LLMAgent(bus=bus)
-    
-    # 1. Downgrade to verified cheapest model for live tests
-    agent.GEMINI_3_FLASH_PREVIEW = agent.GEMINI_3_1_FLASH_LITE
-    
-    # 2. Bootstrap system with a prompt wait
-    initial_cmd = AgentCommandFactory.prompt_user({"question": "Say exactly 'ping'."})
-    bus.broadcast_to_one(initial_cmd)
-    agent.waiting_for_results.add(initial_cmd.id)
-    
-    # Claim it so it doesn't stay unhandled 
-    bus.claim(["prompt_user"], "test_manual")
-    
-    # 3. Simulate human reacting directly back to the outbox
-    bus.write_result(initial_cmd.id, initial_cmd.command_name, "Please reply exactly with the word 'ping', and nothing else", "MockUserAgent")
-    
-    # 4. First tick: outbox routes human text into a `process_user_prompt` command
-    # handle_command() sweeps it immediately and queries the real live Google APIs
-    asyncio.run(agent._execute_next_command())
-    
-    # 5. Verify completion
-    # The LLMAgent now writes the response directly to the Outbox. We verify by scanning the Outbox.
-    items = [item for item in bus._outbox.items() if item["command_name"] == "process_user_prompt"]
-    assert len(items) > 0, "No process_user_prompt result found in Outbox"
-    
-    answer_result = items[-1]["result"]
-    answer_text = str(answer_result).lower()
-    
-    assert "ping" in answer_text, f"Gemini did not respond with 'ping', got instead: {answer_text}"
 
 @patch('agents.llm_agent.LLMAgent.GEMINI_3_FLASH_PREVIEW', 'gemini-3.1-flash-lite-preview')
 def test_e2e_live_simulation(capsys):
@@ -174,7 +119,11 @@ def test_llm_agent_read_file_command(setup_components):
     cmd = AgentCommandFactory.read_file(test_file_path)
     bus.broadcast_to_one(cmd)
 
-    asyncio.run(agent._execute_next_command())
+    async def run_tick():
+        await agent._execute_next_command()
+        for t in list(agent._active_tasks):
+            await t
+    asyncio.run(run_tick())
 
     result = bus.get_result(cmd.id)
     assert result is not None

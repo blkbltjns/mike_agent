@@ -120,7 +120,7 @@ class TestAgentThreadLoop:
         t.join(timeout=2.0)
 
         # Verify the command id was tracked natively
-        assert cmd.id in agent.waiting_for_results
+        assert cmd.id in agent.pending_tasks
 
 class TestDummyContext:
     def test_dummy_command_returns_result(self):

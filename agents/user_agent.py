@@ -116,7 +116,7 @@ class UserAgent(Agent):
             
         from agent_command import AgentCommand
         cmd = AgentCommand(command_name, payload)
-        self.issue_command(cmd)
+        self.bus.broadcast_to_one(cmd)
         print(f"Enqueued {command_name} with payload {payload}")
 
     def _enter_auto_mode(self):
@@ -141,7 +141,7 @@ class UserAgent(Agent):
             return
             
         process_cmd = AgentCommandFactory.process_user_prompt({"prompt": initial_prompt})
-        self.issue_command(process_cmd)
+        self.bus.broadcast_to_one(process_cmd)
         current_tracking_id = process_cmd.id
         
         print("Waiting for LLM reply...")
@@ -156,7 +156,7 @@ class UserAgent(Agent):
                     break
                 else:
                     new_cmd = AgentCommandFactory.process_user_prompt({"prompt": reply})
-                    self.issue_command(new_cmd)
+                    self.bus.broadcast_to_one(new_cmd)
                     current_tracking_id = new_cmd.id
                     print("Waiting for LLM reply...")
             else:

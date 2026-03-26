@@ -19,17 +19,6 @@ class LLMAgent(Agent):
     def __init__(self, bus):
         super().__init__(incoming_commands=["process_user_prompt", "gather_context", "read_file"], bus=bus)
 
-    def handle_outbox_result(self, result: dict):
-        """Reacts autonomously when tracked prompts or processing commands resolve."""
-        command_name = result.get("command_name")
-
-        if command_name == "prompt_user":
-            user_text = result.get("result", "")
-
-            # Route human text to the real Gemini pipeline
-            cmd = AgentCommand(command_name="process_user_prompt", payload={"prompt": user_text})
-            self.issue_command(cmd)
-
     async def handle_command(self, command):
         if command.command_name == "read_file":
             path = command.payload.get("path", "")
@@ -68,15 +57,8 @@ class LLMAgent(Agent):
                 if tool_cmd_dict.get("tool") == "read_file":
                     path = tool_cmd_dict.get("path", "")
                     read_cmd = AgentCommandFactory.read_file(path)
-                    self.issue_command(read_cmd)
-                    claimed_read = self.bus.claim(["read_file"], self.id)
-                    if claimed_read:
-                        file_content = await self.handle_command(claimed_read)
-                        self.bus.write_result(
-                            claimed_read.id, claimed_read.command_name,
-                            file_content, self.__class__.__name__
-                        )
-                        accumulated.append(f"[File: {path}]\n{file_content}")
+                    file_content = await self.issue_command(read_cmd)
+                    accumulated.append(f"[File: {path}]\n{file_content}")
 
             return "\n\n".join(accumulated)
 
@@ -96,15 +78,9 @@ class LLMAgent(Agent):
             )
             context_description = phase1_response.text
 
-            # Enqueue gather_context, claim and execute it inline
+            # Suspend and gather context elegantly
             gather_cmd = AgentCommandFactory.gather_context({"text": context_description})
-            self.issue_command(gather_cmd)
-            claimed_gather = self.bus.claim(["gather_context"], self.id)
-            accumulated_context = await self.handle_command(claimed_gather)
-            self.bus.write_result(
-                claimed_gather.id, claimed_gather.command_name,
-                accumulated_context, self.__class__.__name__
-            )
+            accumulated_context = await self.issue_command(gather_cmd)
 
             # Phase 2: call LLM with context prepended
             phase2_response = client.models.generate_content(

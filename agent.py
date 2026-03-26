@@ -18,13 +18,17 @@ class Agent:
             self.incoming_commands.append("toggle_debug_logging")
         self.bus = bus
         self.active = False
-        self.waiting_for_results = set()
+        self.pending_tasks = {}
+        self._active_tasks = set()
         self._debug_enabled = False
 
-    def issue_command(self, command: AgentCommand) -> None:
-        """Helper method to construct a command, enqueue it to the Bus via broadcast_to_one, and instantly track its result."""
+    async def issue_command(self, command: AgentCommand):
+        """Broadcasts a command to the Bus, maps it to a Future, and awaits the ultimate result."""
         self.bus.broadcast_to_one(command)
-        self.waiting_for_results.add(command.id)
+        loop = asyncio.get_running_loop()
+        fut = loop.create_future()
+        self.pending_tasks[command.id] = fut
+        return await fut
 
     def issue_broadcast_command(self, command: AgentCommand) -> None:
         """Helper method to cast a broadcast command with no tracking."""
@@ -71,14 +75,25 @@ class Agent:
 
     def _check_waiting_results(self) -> bool:
         """Poll the Outbox for tracked commands safely without blocking."""
-        for req_id in tuple(self.waiting_for_results):
+        processed = False
+        for req_id, fut in list(self.pending_tasks.items()):
             result_item = self.bus.get_result(req_id)
             if result_item is not None:
-                self.handle_outbox_result(result_item)
-                self.waiting_for_results.remove(req_id)
-                return True
+                fut.set_result(result_item["result"])
+                del self.pending_tasks[req_id]
+                processed = True
+        return processed
 
-        return False
+    async def _process_task(self, command: AgentCommand):
+        self._log_debug(f"Claimed command: {command.command_name} with payload: {command.payload}")
+        try:
+            result = await self.handle_command(command)
+            if result is not None:
+                self._log_debug(f"Finished command: {command.command_name} with result: {result}")
+                agent_name = self.__class__.__name__
+                self.bus.write_result(command.id, command.command_name, result, agent_name=agent_name)
+        except Exception as e:
+            self._log_debug(f"Error handling task: {e}")
 
     async def _execute_next_command(self) -> bool:
         """
@@ -95,20 +110,18 @@ class Agent:
             self._handle_debug_toggle(command.payload.get("enabled", False))
             return True
 
-        self._log_debug(f"Claimed command: {command.command_name} with payload: {command.payload}")
-        result = await self.handle_command(command)
-
-        if result is not None:
-            self._log_debug(f"Finished command: {command.command_name} with result: {result}")
-            agent_name = self.__class__.__name__
-            self.bus.write_result(command.id, command.command_name, result, agent_name=agent_name)
+        task = asyncio.create_task(self._process_task(command))
+        self._active_tasks.add(task)
+        task.add_done_callback(self._active_tasks.discard)
         return True
 
     async def _async_run(self, bootstrap_commands: list = None) -> None:
         """The async main loop hosted inside the agent's thread."""
         if bootstrap_commands:
             for bt_cmd in bootstrap_commands:
-                self.issue_command(bt_cmd)
+                task = asyncio.create_task(self.issue_command(bt_cmd))
+                self._active_tasks.add(task)
+                task.add_done_callback(self._active_tasks.discard)
 
         self.active = True
         while self.active:
