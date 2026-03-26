@@ -10,7 +10,7 @@ class DummyAgent(Agent):
     def __init__(self, bus):
         super().__init__(incoming_commands=["dummy_command"], bus=bus)
 
-    def execute(self, command):
+    def handle_command(self, command):
         if command.command_name == "dummy_command":
             return self.handle_dummy_command(command.payload)
 

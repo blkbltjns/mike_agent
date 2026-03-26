@@ -13,12 +13,12 @@ class Agent:
         self.active = False
         self.waiting_for_results = set()
 
-    def execute(self, command: AgentCommand):
+    def handle_command(self, command: AgentCommand):
         """
-        Execute the given command.
+        Handle the given command.
         Must be implemented by subclasses to explicitly handle commands.
         """
-        raise NotImplementedError("Subclasses must implement explicit command execution.")
+        raise NotImplementedError("Subclasses must implement explicit command handling.")
 
     def handle_outbox_result(self, result: dict):
         """
@@ -51,10 +51,11 @@ class Agent:
         if command is None:
             return processed_waiting
 
-        result = self.execute(command)
-        
-        agent_name = self.__class__.__name__
-        self.bus.write_result(command.id, command.command_name, result, agent_name=agent_name)
+        result = self.handle_command(command)
+
+        if result is not None:
+            agent_name = self.__class__.__name__
+            self.bus.write_result(command.id, command.command_name, result, agent_name=agent_name)
         return True
 
     def run(self, bootstrap_commands: list = None) -> None:

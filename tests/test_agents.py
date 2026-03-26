@@ -24,7 +24,7 @@ def test_user_agent(mock_input, setup_components):
     assert result is not None
     assert result["result"] == "Fine, thanks!"
 
-@patch.object(LLMAgent, 'execute', return_value={"response": "I am the mocked Gemini response!"})
+@patch.object(LLMAgent, 'handle_command', return_value={"response": "I am the mocked Gemini response!"})
 def test_llm_agent_tracker(mock_execute, setup_components):
     bus = setup_components
     agent = LLMAgent(bus=bus)
@@ -52,36 +52,6 @@ def test_llm_agent_tracker(mock_execute, setup_components):
     assert final_cmd.payload["question"] == "I am the mocked Gemini response!"
     assert final_cmd.id in agent.waiting_for_results
 
-@patch.dict('os.environ', {'GEMINI_API_KEY': 'fake_test_key'})
-@patch('agents.llm_agent.genai.Client')
-def test_llm_agent_gemini_integration(mock_client_class, setup_components):
-    # Setup SDK mock to return a string resembling JSON
-    mock_client_instance = mock_client_class.return_value
-    mock_client_instance.models.generate_content.return_value.text = '{"mocked": "gemini_response"}'
-
-    bus = setup_components
-    agent = LLMAgent(bus=bus)
-    
-    # Create the incoming process_user_prompt command
-    from agent_command import AgentCommand
-    cmd = AgentCommand(command_name="process_user_prompt", payload={"prompt": "Hello"})
-    bus.enqueue(cmd)
-    
-    # Process the command
-    agent._execute_next_command()
-    
-    # 1. Verify Specification: SDK Integration and Environment keys
-    mock_client_class.assert_called()
-    mock_client_instance.models.generate_content.assert_called_with(
-        model=agent.GEMINI_3_FLASH_PREVIEW,
-        contents="Hello" + agent.TOOL_INSTRUCTION
-    )
-    
-    # 2. Verify Specification: strict JSON dictionary formatting output
-    result_item = bus.get_result(cmd.id)
-    assert result_item is not None
-    assert isinstance(result_item["result"], dict)
-    assert result_item["result"] == {"mocked": "gemini_response"}
 
 def test_live_gemini_integration_loop(setup_components):
     import os
@@ -197,33 +167,6 @@ def test_user_agent_auto_mode_stateless(mock_input, setup_components):
     assert result["result"] == "Hello round 2"
     assert "Hello round 1" not in result["result"]
 
-@patch.dict('os.environ', {'GEMINI_API_KEY': 'fake_test_key'})
-@patch('agents.llm_agent.genai.Client')
-def test_llm_agent_stateless_prompt_execution(mock_client_class, setup_components):
-    """Spec Section 4 - Stateless Prompt Execution: every process_user_prompt command
-    must be a completely isolated, context-free call to the Gemini SDK."""
-    mock_client_instance = mock_client_class.return_value
-    mock_client_instance.models.generate_content.return_value.text = '{"response": "mocked reply"}'
-
-    bus = setup_components
-    agent = LLMAgent(bus=bus)
-
-    from agent_command import AgentCommand
-    cmd1 = AgentCommand(command_name="process_user_prompt", payload={"prompt": "first prompt text"})
-    cmd2 = AgentCommand(command_name="process_user_prompt", payload={"prompt": "second prompt text"})
-
-    agent.execute(cmd1)
-    agent.execute(cmd2)
-
-    assert mock_client_instance.models.generate_content.call_count == 2
-
-    call_1_contents = mock_client_instance.models.generate_content.call_args_list[0].kwargs["contents"]
-    call_2_contents = mock_client_instance.models.generate_content.call_args_list[1].kwargs["contents"]
-
-    # Each call must only contain its own prompt — no history from the other round
-    assert "first prompt text" in call_1_contents
-    assert "first prompt text" not in call_2_contents
-    assert "second prompt text" in call_2_contents
 
 
 def test_llm_agent_read_file_command(setup_components):
@@ -246,36 +189,3 @@ def test_llm_agent_read_file_command(setup_components):
 
     assert result["result"] == expected_content
 
-
-@patch('builtins.open', mock_open(read_data="fake file content"))
-@patch.dict('os.environ', {'GEMINI_API_KEY': 'fake_test_key'})
-@patch('agents.llm_agent.genai.Client')
-def test_llm_agent_tool_loop(mock_client_class, setup_components):
-    """Spec Section 4 - Tool Loop: the LLMAgent must not write a final result to the Outbox
-    until all tool requests are resolved."""
-    response_1 = MagicMock()
-    response_1.text = '{"tool": "read_file", "path": "test_subject/utils.py"}'
-    response_2 = MagicMock()
-    response_2.text = '{"response": "the bug is in the range function"}'
-
-    mock_client_instance = mock_client_class.return_value
-    mock_client_instance.models.generate_content.side_effect = [response_1, response_2]
-
-    bus = setup_components
-    agent = LLMAgent(bus=bus)
-
-    cmd = AgentCommandFactory.process_user_prompt({"prompt": "Find the bug."})
-    bus.enqueue(cmd)
-
-    # No result before processing
-    assert bus.get_result(cmd.id) is None
-
-    agent._execute_next_command()
-
-    # Gemini must have been called exactly twice (once for tool detection, once for final answer)
-    assert mock_client_instance.models.generate_content.call_count == 2
-
-    # The final result must only be written after the full tool loop resolves
-    result = bus.get_result(cmd.id)
-    assert result is not None
-    assert result["result"] == {"response": "the bug is in the range function"}

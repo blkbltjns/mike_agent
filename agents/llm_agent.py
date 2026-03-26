@@ -1,5 +1,4 @@
 import os
-import json
 from google import genai
 from agent import Agent
 from agent_command_factory import AgentCommandFactory
@@ -16,13 +15,6 @@ class LLMAgent(Agent):
     GEMINI_2_5_PRO = 'gemini-2.5-pro'                          # verified
     GEMINI_3_1_FLASH_LITE = 'gemini-3.1-flash-lite-preview'    # verified
 
-    TOOL_INSTRUCTION = (
-        " You must return ONLY a raw JSON dictionary without any markdown formatting or code blocks."
-        " You have access to the following tool: to read a file, respond with"
-        " {\"tool\": \"read_file\", \"path\": \"<file path>\"}."
-        " When you have your final answer and no more files to read, respond with a JSON dictionary"
-        " containing a 'response' key and no 'tool' key."
-    )
 
     def __init__(self, bus):
         super().__init__(incoming_commands=["process_user_prompt", "read_file"], bus=bus)
@@ -48,7 +40,7 @@ class LLMAgent(Agent):
             self.bus.enqueue(cmd)
             self.waiting_for_results.add(cmd.id)
 
-    def execute(self, command):
+    def handle_command(self, command):
         if command.command_name == "read_file":
             path = command.payload.get("path", "")
             try:
@@ -58,40 +50,6 @@ class LLMAgent(Agent):
                 return f"Error reading file: {e}"
 
         if command.command_name == "process_user_prompt":
-            api_key = os.environ.get('GEMINI_API_KEY')
-            client = genai.Client(api_key=api_key)
-            prompt = command.payload.get("prompt", "")
-
-            while True:
-                full_prompt = prompt + self.TOOL_INSTRUCTION
-                response = client.models.generate_content(
-                    model=self.GEMINI_3_FLASH_PREVIEW,
-                    contents=full_prompt
-                )
-
-                try:
-                    result_dict = json.loads(response.text)
-                except json.JSONDecodeError:
-                    self.waiting_for_results.add(command.id)
-                    return {"error": "Failed to parse JSON", "raw_output": response.text}
-
-                if "tool" in result_dict:
-                    tool_name = result_dict.get("tool")
-                    if tool_name == "read_file":
-                        file_path = result_dict.get("path", "")
-                        tool_cmd = AgentCommandFactory.read_file(file_path)
-                        self.bus.enqueue(tool_cmd)
-                        claimed_tool_cmd = self.bus.claim(["read_file"])
-                        file_content = self.execute(claimed_tool_cmd)
-                        self.bus.write_result(
-                            claimed_tool_cmd.id,
-                            claimed_tool_cmd.command_name,
-                            file_content,
-                            self.__class__.__name__
-                        )
-                        prompt = f"{command.payload.get('prompt', '')}\n\n[File: {file_path}]\n{file_content}"
-                else:
-                    self.waiting_for_results.add(command.id)
-                    return result_dict
+            pass  # TODO: implement two-phase gather_context flow
 
         return None
