@@ -60,7 +60,7 @@ class Outbox:
         self._log = []
         self._lock = threading.Lock()
 
-    def append(self, request_id: str, command_name: str, result, agent_name: str = None) -> dict:
+    def append(self, request_id: str, command_name: str, result, agent_name: str | None = None) -> dict:
         with self._lock:
             entry = {
                 "id": str(uuid.uuid4()),
@@ -103,7 +103,7 @@ class Bus:
             return cmd
         return self._broadcast_log.claim(command_names, agent_id)
 
-    def write_result(self, request_id: str, command_name: str, result, agent_name: str = None) -> dict:
+    def write_result(self, request_id: str, command_name: str, result, agent_name: str | None = None) -> dict:
         return self._outbox.append(request_id, command_name, result, agent_name)
 
     def get_result(self, request_id: str) -> dict | None:

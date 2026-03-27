@@ -11,11 +11,11 @@ class DummyAgent(Agent):
     def __init__(self, bus):
         super().__init__(incoming_commands=["dummy_command"], bus=bus)
 
-    async def handle_command(self, command):
+    async def _handle_command(self, command: AgentCommand):
         if command.command_name == "dummy_command":
             return self.handle_dummy_command(command.payload)
 
-    def handle_dummy_command(self, payload: dict = None) -> str:
+    def handle_dummy_command(self, payload: dict | None = None) -> str:
         return "Dummy Result"
 
 def make_system():
@@ -56,6 +56,7 @@ class TestAgentExecuteNextCommand:
         bus.broadcast_to_one(cmd)
         asyncio.run(agent._execute_next_command())
         entry = bus.get_result(cmd.id)
+        assert entry is not None
         assert entry["request_id"] == cmd.id
         assert entry["command_name"] == "dummy_command"
         assert entry["agent_name"] == "DummyAgent"

@@ -1,6 +1,6 @@
 import os
 import json
-from google import genai
+from google import genai  # type: ignore
 from agent import Agent
 from agent_command_factory import AgentCommandFactory
 from agent_command import AgentCommand
@@ -19,7 +19,7 @@ class LLMAgent(Agent):
     def __init__(self, bus):
         super().__init__(incoming_commands=["process_user_prompt", "gather_context", "read_file"], bus=bus)
 
-    async def handle_command(self, command):
+    async def _handle_command(self, command: AgentCommand):
         if command.command_name == "read_file":
             path = command.payload.get("path", "")
             try:
@@ -37,28 +37,35 @@ class LLMAgent(Agent):
                 model=self.GEMINI_3_FLASH_PREVIEW,
                 contents=(
                     f"{context_description}\n"
-                    "Return a JSON array of tool commands needed to gather this context. "
-                    "Each element must be an object with a 'tool' key. "
-                    "Available tools: read_file (requires a 'path' key). "
+                    "Return a JSON array of AgentCommand definitions needed to gather this context. "
+                    "Each element must be an object with 'command_name' and 'payload' keys. "
+                    "Available commands: 'read_file' (payload needs 'path'), 'prompt_user' (payload needs 'question' to ask human for help). "
                     "Return ONLY the raw JSON array with no markdown or code fences. "
-                    "Example: [{\"tool\": \"read_file\", \"path\": \"path/to/file\"}]"
+                    "Example: [{\"command_name\": \"read_file\", \"payload\": {\"path\": \"path/to/file\"}}]"
                 )
             )
 
             try:
-                tool_commands = json.loads(response.text)
-                if not isinstance(tool_commands, list):
-                    tool_commands = []
+                command_definitions = json.loads(response.text)
+                if not isinstance(command_definitions, list):
+                    command_definitions = []
             except json.JSONDecodeError:
-                tool_commands = []
+                command_definitions = []
 
             accumulated = []
-            for tool_cmd_dict in tool_commands:
-                if tool_cmd_dict.get("tool") == "read_file":
-                    path = tool_cmd_dict.get("path", "")
+            for cmd_def in command_definitions:
+                command_name = cmd_def.get("command_name")
+                payload = cmd_def.get("payload", {})
+                
+                if command_name == "read_file":
+                    path = payload.get("path", "")
                     read_cmd = AgentCommandFactory.read_file(path)
                     file_content = await self.issue_command(read_cmd)
                     accumulated.append(f"[File: {path}]\n{file_content}")
+                elif command_name == "prompt_user":
+                    prompt_cmd = AgentCommandFactory.prompt_user(payload)
+                    user_reply = await self.issue_command(prompt_cmd)
+                    accumulated.append(f"[User Reply to Prompt]\n{user_reply}")
 
             return "\n\n".join(accumulated)
 

@@ -18,7 +18,7 @@ All agents operate on the same basic loop: Poll Bus → Claim Command → Execut
 
 * **Execution Context:** Each agent runs in its own isolated thread hosting its own asynchronous event loop, allowing complex tasks to await inline sub-executions without blocking other agents.
 * **LLM Worker Agents:** Handle reasoning and dynamic context aggregation tasks. They act upon tasks by consulting the LLM and can recursively spawn and await new isolated sub-tasks before a primary task is resolved.
-* **The User Agent (Human):** Registered identically to any other agent, but operates via a synchronous terminal interface. It translates human inputs into standardized routing loops, allowing a human operator to proactively manage tasks or react seamlessly to the automated dialogue loops initiated by the system.
+* **The User Agent (Human):** Registered identically to any other agent, handling terminal inputs within its concurrent polling loop. It translates human inputs into standardized commands, allowing a human operator to proactively manage tasks or react seamlessly to the automated dialogue loops initiated by the system.
 * **System Observability:** The unified topology allows base-level interception of system broadcasts (like debug tracing and file logging) so that all agents inherently support synchronized observability without duplicating logic.
 
 ## 4. Execution Flow & Cognitive Loop

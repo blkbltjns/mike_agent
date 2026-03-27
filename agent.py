@@ -1,6 +1,7 @@
 import asyncio
 import time
 import uuid
+import typing
 from agent_command import AgentCommand
 
 class Agent:
@@ -16,7 +17,7 @@ class Agent:
         self.incoming_commands = list(incoming_commands)
         if "toggle_debug_logging" not in self.incoming_commands:
             self.incoming_commands.append("toggle_debug_logging")
-        self.bus = bus
+        self.__bus = bus
         self.active = False
         self.pending_tasks = {}
         self._active_tasks = set()
@@ -24,7 +25,7 @@ class Agent:
 
     async def issue_command(self, command: AgentCommand):
         """Broadcasts a command to the Bus, maps it to a Future, and awaits the ultimate result."""
-        self.bus.broadcast_to_one(command)
+        self.__bus.broadcast_to_one(command)
         loop = asyncio.get_running_loop()
         fut = loop.create_future()
         self.pending_tasks[command.id] = fut
@@ -32,7 +33,11 @@ class Agent:
 
     def issue_broadcast_command(self, command: AgentCommand) -> None:
         """Helper method to cast a broadcast command with no tracking."""
-        self.bus.broadcast_to_all(command)
+        self.__bus.broadcast_to_all(command)
+
+    def enqueue_command(self, command: AgentCommand) -> None:
+        """Helper method to submit a single-target command with no tracking."""
+        self.__bus.broadcast_to_one(command)
 
     def _log_debug(self, msg: str):
         if not self._debug_enabled:
@@ -59,7 +64,7 @@ class Agent:
             self._debug_enabled = False
             Agent._shared_debug_file = None
 
-    async def handle_command(self, command: AgentCommand):
+    async def _handle_command(self, command: AgentCommand) -> typing.Any:
         """
         Handle the given command.
         Must be implemented by subclasses to explicitly handle commands.
@@ -77,7 +82,7 @@ class Agent:
         """Poll the Outbox for tracked commands safely without blocking."""
         processed = False
         for req_id, fut in list(self.pending_tasks.items()):
-            result_item = self.bus.get_result(req_id)
+            result_item = self.__bus.get_result(req_id)
             if result_item is not None:
                 fut.set_result(result_item["result"])
                 del self.pending_tasks[req_id]
@@ -87,11 +92,11 @@ class Agent:
     async def _process_task(self, command: AgentCommand):
         self._log_debug(f"Claimed command: {command.command_name} with payload: {command.payload}")
         try:
-            result = await self.handle_command(command)
+            result = await self._handle_command(command)
             if result is not None:
                 self._log_debug(f"Finished command: {command.command_name} with result: {result}")
                 agent_name = self.__class__.__name__
-                self.bus.write_result(command.id, command.command_name, result, agent_name=agent_name)
+                self.__bus.write_result(command.id, command.command_name, result, agent_name=agent_name)
         except Exception as e:
             self._log_debug(f"Error handling task: {e}")
 
@@ -102,7 +107,7 @@ class Agent:
         """
         processed_waiting = self._check_waiting_results()
 
-        command = self.bus.claim(self.incoming_commands, self.id)
+        command = self.__bus.claim(self.incoming_commands, self.id)
         if command is None:
             return processed_waiting
 
@@ -115,7 +120,7 @@ class Agent:
         task.add_done_callback(self._active_tasks.discard)
         return True
 
-    async def _async_run(self, bootstrap_commands: list = None) -> None:
+    async def _async_run(self, bootstrap_commands: list | None = None) -> None:
         """The async main loop hosted inside the agent's thread."""
         if bootstrap_commands:
             for bt_cmd in bootstrap_commands:
@@ -129,7 +134,7 @@ class Agent:
             if not processed:
                 await asyncio.sleep(1)
 
-    def run(self, bootstrap_commands: list = None) -> None:
+    def run(self, bootstrap_commands: list | None = None) -> None:
         """Run the agent loop continuously inside an asyncio event loop."""
         asyncio.run(self._async_run(bootstrap_commands))
 
