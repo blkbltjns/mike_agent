@@ -1,6 +1,6 @@
 import asyncio
 import pytest
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock, mock_open, AsyncMock
 from bus import Bus
 from agents.user_agent import UserAgent
 from agents.llm_agent import LLMAgent
@@ -133,3 +133,110 @@ def test_llm_agent_fallback_on_503(setup_components):
             
             assert call_1.kwargs["model"] == agent.GEMINI_3_FLASH_PREVIEW
             assert call_2.kwargs["model"] == agent.GEMINI_3_1_PRO_PREVIEW
+
+
+def test_gather_context_exits_on_empty_array(setup_components):
+    """Spec Section 4 - gather_context Handler: loop terminates immediately when LLM returns []."""
+    bus = setup_components
+    agent = LLMAgent(bus=bus)
+
+    mock_response = MagicMock()
+    mock_response.text = "[]"
+
+    async def run():
+        with patch('google.genai.Client'):
+            with patch.object(agent, '_generate_with_fallback', return_value=mock_response) as mock_gen:
+                with patch.object(agent, 'issue_command', new_callable=AsyncMock) as mock_issue:
+                    cmd = AgentCommandFactory.gather_context({"text": "what files do I need?"})
+                    result = await agent._handle_command(cmd)
+                    assert mock_gen.call_count == 1
+                    mock_issue.assert_not_called()
+                    assert result == ""
+
+    asyncio.run(run())
+
+
+def test_gather_context_hard_cap_at_5_iterations(setup_components):
+    """Spec Section 4 - gather_context Handler: loop runs at most 5 iterations regardless of LLM output."""
+    bus = setup_components
+    agent = LLMAgent(bus=bus)
+
+    mock_response = MagicMock()
+    mock_response.text = '[{"command_name": "read_file", "payload": {"path": "foo.py"}}]'
+
+    async def run():
+        with patch('google.genai.Client'):
+            with patch.object(agent, '_generate_with_fallback', return_value=mock_response) as mock_gen:
+                with patch.object(agent, 'issue_command', new_callable=AsyncMock, return_value="fake content"):
+                    cmd = AgentCommandFactory.gather_context({"text": "gather everything"})
+                    await agent._handle_command(cmd)
+                    assert mock_gen.call_count == 5
+
+    asyncio.run(run())
+
+
+def test_gather_context_issues_subcommand_and_accumulates(setup_components):
+    """Spec Section 4 - gather_context Handler: each sub-command is dispatched via issue_command and its result is accumulated."""
+    bus = setup_components
+    agent = LLMAgent(bus=bus)
+
+    responses = [
+        MagicMock(text='[{"command_name": "read_file", "payload": {"path": "utils.py"}}]'),
+        MagicMock(text="[]"),
+    ]
+
+    async def run():
+        with patch('google.genai.Client'):
+            with patch.object(agent, '_generate_with_fallback', side_effect=responses):
+                with patch.object(agent, 'issue_command', new_callable=AsyncMock, return_value="file content here") as mock_issue:
+                    cmd = AgentCommandFactory.gather_context({"text": "I need utils.py"})
+                    result = await agent._handle_command(cmd)
+                    assert result is not None
+                    assert mock_issue.call_count == 1
+                    assert "file content here" in result
+
+    asyncio.run(run())
+
+
+def test_gather_context_accumulates_multiple_commands(setup_components):
+    """Spec Section 4 - gather_context Handler: results from multiple sub-commands in one iteration are all concatenated."""
+    bus = setup_components
+    agent = LLMAgent(bus=bus)
+
+    responses = [
+        MagicMock(text='[{"command_name": "read_file", "payload": {"path": "a.py"}}, {"command_name": "prompt_user", "payload": {"question": "Which module?"}}]'),
+        MagicMock(text="[]"),
+    ]
+    issue_returns = ["content of a.py", "the user said: module X"]
+
+    async def run():
+        with patch('google.genai.Client'):
+            with patch.object(agent, '_generate_with_fallback', side_effect=responses):
+                with patch.object(agent, 'issue_command', new_callable=AsyncMock, side_effect=issue_returns):
+                    cmd = AgentCommandFactory.gather_context({"text": "I need context"})
+                    result = await agent._handle_command(cmd)
+                    assert result is not None
+                    assert "content of a.py" in result
+                    assert "the user said: module X" in result
+
+    asyncio.run(run())
+
+
+def test_gather_context_handles_malformed_json_gracefully(setup_components):
+    """Spec Section 4 - gather_context Handler: malformed LLM JSON output is treated as [] and the loop exits cleanly."""
+    bus = setup_components
+    agent = LLMAgent(bus=bus)
+
+    mock_response = MagicMock()
+    mock_response.text = "this is definitely not json"
+
+    async def run():
+        with patch('google.genai.Client'):
+            with patch.object(agent, '_generate_with_fallback', return_value=mock_response):
+                with patch.object(agent, 'issue_command', new_callable=AsyncMock) as mock_issue:
+                    cmd = AgentCommandFactory.gather_context({"text": "I need context"})
+                    result = await agent._handle_command(cmd)
+                    mock_issue.assert_not_called()
+                    assert result == ""
+
+    asyncio.run(run())

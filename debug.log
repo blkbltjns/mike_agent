@@ -1,8 +1,0 @@
-
-[MOCK_INPUT DEBUG] Sleeping for 0.5 seconds before returning: 'enter_user_auto_mode'
-[MOCK_INPUT DEBUG] Sleeping for 0.1 seconds before returning: 'Please reply exactly with the word 'ping', and nothing else.'
-[LLMAgent DEBUG] Executing handle_command for: process_user_prompt
-[LLMAgent DEBUG] Executing handle_command for: gather_context
-[LLMAgent DEBUG] Executing handle_command for: read_file
-[MOCK_INPUT DEBUG] Sleeping for 10.0 seconds before returning: 'Please reply exactly with the word 'pong', and nothing else.'
-[MOCK_INPUT DEBUG] Sleeping for 10.0 seconds before returning: 'exit'

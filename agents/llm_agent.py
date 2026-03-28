@@ -20,19 +20,26 @@ class LLMAgent(Agent):
         super().__init__(incoming_commands=["process_user_prompt", "gather_context", "read_file"], bus=bus)
 
     def _generate_with_fallback(self, client, contents: str):
+        self._log_debug(f"[LLM REQUEST] model={self.GEMINI_3_FLASH_PREVIEW}\n{contents}")
         try:
-            return client.models.generate_content(
+            response = client.models.generate_content(
                 model=self.GEMINI_3_FLASH_PREVIEW,
                 contents=contents
             )
+            self._log_debug(f"[LLM RESPONSE] model={self.GEMINI_3_FLASH_PREVIEW}\n{response.text}")
+            return response
         except Exception as e:
+            self._log_debug(f"[LLM ERROR] model={self.GEMINI_3_FLASH_PREVIEW} error={e}")
             err_str = str(e).upper()
             if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str:
                 self._log_debug(f"Model {self.GEMINI_3_FLASH_PREVIEW} unavailable. Stepping up to {self.GEMINI_3_1_PRO_PREVIEW} temporary fallback...")
-                return client.models.generate_content(
+                self._log_debug(f"[LLM REQUEST] model={self.GEMINI_3_1_PRO_PREVIEW}\n{contents}")
+                fallback_response = client.models.generate_content(
                     model=self.GEMINI_3_1_PRO_PREVIEW,
                     contents=contents
                 )
+                self._log_debug(f"[LLM RESPONSE] model={self.GEMINI_3_1_PRO_PREVIEW}\n{fallback_response.text}")
+                return fallback_response
             raise
 
     async def _handle_command(self, command: AgentCommand):
