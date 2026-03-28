@@ -21,17 +21,9 @@ def test_user_agent(setup_components):
     async def run_tick():
         agent.active = True
         
-        # Process the command directly
-        task = asyncio.create_task(agent._handle_command(cmd))
+        with patch('builtins.input', return_value="Fine, thanks!"):
+            result = await agent._handle_command(cmd)
         
-        # Yield to let it hit the future creation
-        await asyncio.sleep(0.1)
-        
-        # Supply the human input
-        assert agent._input_future is not None
-        agent._input_future.set_result("Fine, thanks!")
-        
-        result = await task
         # Write the result to the bus so the test validation passes
         bus.write_result(cmd.id, cmd.command_name, result, "UserAgent")
             
@@ -63,24 +55,8 @@ def test_user_agent_auto_mode_stateless(setup_components):
         cmd = AgentCommandFactory.enter_user_auto_mode()
         
         async def run_tick():
-            task = asyncio.create_task(agent._handle_command(cmd))
-            
-            # Wait for initial prompt
-            await asyncio.sleep(0.1)
-            assert agent._input_future is not None
-            agent._input_future.set_result("Hello round 1")
-            
-            # Wait for round 2 prompt
-            await asyncio.sleep(0.1)
-            assert agent._input_future is not None
-            agent._input_future.set_result("Hello round 2")
-            
-            # Exit the loop
-            await asyncio.sleep(0.1)
-            assert agent._input_future is not None
-            agent._input_future.set_result("exit")
-            
-            await task
+            with patch('builtins.input', side_effect=["Hello round 1", "Hello round 2", "exit"]):
+                await agent._handle_command(cmd)
                 
         asyncio.run(run_tick())
 
@@ -127,3 +103,33 @@ def test_llm_agent_read_file_command(setup_components):
 
     assert result["result"] == expected_content
 
+def test_llm_agent_fallback_on_503(setup_components):
+    """Spec Section 4 - Temporary Model Step-Up Contract: LLMAgent steps up to PRO model
+    if it encounters an UNAVAILABLE error."""
+    bus = setup_components
+    agent = LLMAgent(bus=bus)
+
+    mock_error = Exception("503 UNAVAILABLE: Server overloaded")
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = [
+        mock_error,
+        MagicMock(text="[]")
+    ]
+
+    with patch('os.environ.get', return_value="FAKE_KEY"):
+        with patch('google.genai.Client', return_value=mock_client):
+            cmd = AgentCommandFactory.gather_context({"text": "test"})
+            bus.broadcast_to_one(cmd)
+            
+            async def run_tick():
+                await agent._execute_next_command()
+                for t in list(agent._active_tasks):
+                    await t
+            asyncio.run(run_tick())
+
+            assert mock_client.models.generate_content.call_count == 2
+            call_1 = mock_client.models.generate_content.call_args_list[0]
+            call_2 = mock_client.models.generate_content.call_args_list[1]
+            
+            assert call_1.kwargs["model"] == agent.GEMINI_3_FLASH_PREVIEW
+            assert call_2.kwargs["model"] == agent.GEMINI_3_1_PRO_PREVIEW

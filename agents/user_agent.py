@@ -9,28 +9,33 @@ class UserAgent(Agent):
     """
     def __init__(self, bus):
         super().__init__(incoming_commands=["prompt_user", "enter_user_auto_mode"], bus=bus)
-        self._input_future = None
+        import asyncio
+        self._input_lock = asyncio.Lock()
+        self._in_auto_mode = False
 
     async def get_human_input(self, prompt: str) -> str:
         """Helper to safely await human input collected by the unified REPL thread."""
         import asyncio
-        print(f"\n[SYSTEM_PROMPT]: {prompt}\n(Type your response at the prompt below)>", flush=True)
-        self._input_future = asyncio.get_running_loop().create_future()
-        result = await self._input_future
-        self._input_future = None
-        return result
+        self._log_debug("Explicit prompt method attempting to acquire input lock...")
+        async with self._input_lock:
+            self._log_debug("Explicit prompt method successfully acquired input lock.")
+            print(f"\n[SYSTEM_PROMPT]: {prompt}\n(Type your response at the prompt below)>", flush=True)
+            return await asyncio.to_thread(input)
 
     async def _repl_loop(self):
         """Asynchronous REPL loop that uniquely owns the stdin blocking thread."""
         import asyncio
         while self.active:
             try:
-                line = await asyncio.to_thread(input, "\nUserAgent> ")
-                if not line.strip():
+                if self._in_auto_mode:
+                    await asyncio.sleep(0.1)
                     continue
 
-                if self._input_future and not self._input_future.done():
-                    self._input_future.set_result(line.strip())
+                self._log_debug("Continuous background loop aggressively attempting to acquire input lock...")
+                async with self._input_lock:
+                    self._log_debug("Continuous background loop successfully acquired input lock.")
+                    line = await asyncio.to_thread(input, "\nUserAgent> ")
+                if not line.strip():
                     continue
                 
                 choice = line.strip()
@@ -43,6 +48,7 @@ class UserAgent(Agent):
                 elif cmd == "list_commands":
                     self._list_commands()
                 elif cmd == "enter_user_auto_mode":
+                    self._in_auto_mode = True
                     auto_cmd = AgentCommandFactory.enter_user_auto_mode()
                     self.enqueue_command(auto_cmd)
                 elif cmd == "exit" or cmd == "quit":
@@ -69,32 +75,36 @@ class UserAgent(Agent):
     async def _handle_command(self, command: AgentCommand):
         """Handles single-target commands cleanly and natively inside the async task pipeline."""
         if command.command_name == "enter_user_auto_mode":
-            print("\n--- Entering Auto Mode ---")
-            initial_prompt = await self.get_human_input("Initial prompt (type 'exit' to leave auto mode)")
-            if initial_prompt.lower() == 'exit':
-                print("--- Exiting Auto Mode ---")
-                return {"status": "exited"}
-
-            process_cmd = AgentCommandFactory.process_user_prompt({"prompt": initial_prompt})
-            print("Waiting for LLM reply...")
-            result = await self.issue_command(process_cmd)
-
-            while self.active:
-                print("\n[LLM_AGENT]: " + str(result))
-                reply = await self.get_human_input("Next prompt (type 'exit' to leave auto mode)")
-                if reply.lower() == 'exit':
+            try:
+                print("\n--- Entering Auto Mode ---")
+                initial_prompt = await self.get_human_input("Initial prompt (type 'exit' to leave auto mode)")
+                if initial_prompt.lower() == 'exit':
                     print("--- Exiting Auto Mode ---")
-                    break
+                    return {"status": "exited"}
 
-                new_cmd = AgentCommandFactory.process_user_prompt({"prompt": reply})
+                process_cmd = AgentCommandFactory.process_user_prompt({"prompt": initial_prompt})
                 print("Waiting for LLM reply...")
-                result = await self.issue_command(new_cmd)
+                result = await self.issue_command(process_cmd)
 
-            return {"status": "exited"}
+                while self.active:
+                    print("\n[LLM_AGENT]: " + str(result))
+                    reply = await self.get_human_input("Next prompt (type 'exit' to leave auto mode)")
+                    if reply.lower() == 'exit':
+                        print("--- Exiting Auto Mode ---")
+                        break
+
+                    new_cmd = AgentCommandFactory.process_user_prompt({"prompt": reply})
+                    print("Waiting for LLM reply...")
+                    result = await self.issue_command(new_cmd)
+
+                return {"status": "exited"}
+            finally:
+                self._in_auto_mode = False
 
         elif command.command_name == "prompt_user":
             question = command.payload.get("question", "Human input required:")
             answer = await self.get_human_input(question)
+            self._log_debug(f"User Response: {answer}")
             return answer
 
         return None

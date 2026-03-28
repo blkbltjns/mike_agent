@@ -19,6 +19,22 @@ class LLMAgent(Agent):
     def __init__(self, bus):
         super().__init__(incoming_commands=["process_user_prompt", "gather_context", "read_file"], bus=bus)
 
+    def _generate_with_fallback(self, client, contents: str):
+        try:
+            return client.models.generate_content(
+                model=self.GEMINI_3_FLASH_PREVIEW,
+                contents=contents
+            )
+        except Exception as e:
+            err_str = str(e).upper()
+            if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str:
+                self._log_debug(f"Model {self.GEMINI_3_FLASH_PREVIEW} unavailable. Stepping up to {self.GEMINI_3_1_PRO_PREVIEW} temporary fallback...")
+                return client.models.generate_content(
+                    model=self.GEMINI_3_1_PRO_PREVIEW,
+                    contents=contents
+                )
+            raise
+
     async def _handle_command(self, command: AgentCommand):
         if command.command_name == "read_file":
             path = command.payload.get("path", "")
@@ -33,39 +49,54 @@ class LLMAgent(Agent):
             client = genai.Client(api_key=api_key)
             context_description = command.payload.get("text", "")
 
-            response = client.models.generate_content(
-                model=self.GEMINI_3_FLASH_PREVIEW,
-                contents=(
-                    f"{context_description}\n"
-                    "Return a JSON array of AgentCommand definitions needed to gather this context. "
-                    "Each element must be an object with 'command_name' and 'payload' keys. "
-                    "Available commands: 'read_file' (payload needs 'path'), 'prompt_user' (payload needs 'question' to ask human for help). "
-                    "Return ONLY the raw JSON array with no markdown or code fences. "
-                    "Example: [{\"command_name\": \"read_file\", \"payload\": {\"path\": \"path/to/file\"}}]"
-                )
-            )
-
-            try:
-                command_definitions = json.loads(response.text)
-                if not isinstance(command_definitions, list):
-                    command_definitions = []
-            except json.JSONDecodeError:
-                command_definitions = []
-
             accumulated = []
-            for cmd_def in command_definitions:
-                command_name = cmd_def.get("command_name")
-                payload = cmd_def.get("payload", {})
+            iteration = 0
+            max_iterations = 5
+
+            while iteration < max_iterations:
+                iteration += 1
                 
-                if command_name == "read_file":
-                    path = payload.get("path", "")
-                    read_cmd = AgentCommandFactory.read_file(path)
-                    file_content = await self.issue_command(read_cmd)
-                    accumulated.append(f"[File: {path}]\n{file_content}")
-                elif command_name == "prompt_user":
-                    prompt_cmd = AgentCommandFactory.prompt_user(payload)
-                    user_reply = await self.issue_command(prompt_cmd)
-                    accumulated.append(f"[User Reply to Prompt]\n{user_reply}")
+                context_so_far = "\n\n".join(accumulated) if accumulated else "None"
+
+                response = self._generate_with_fallback(
+                    client,
+                    contents=(
+                        f"Original Goal:\n{context_description}\n\n"
+                        f"Context Gathered So Far:\n{context_so_far}\n\n"
+                        "Based on the Original Goal and the Context Gathered So Far, return a JSON array of AgentCommand definitions needed to gather the missing context. "
+                        "Each element must be an object with 'command_name' and 'payload' keys. "
+                        "Available commands: 'read_file' (payload needs 'path'), 'prompt_user' (payload needs 'question' to ask human for help). "
+                        "When using the `prompt_user` command, you must formulate the `question` to be highly direct, concise, and conversational by asking exactly and only for the specific piece of missing information you need, rather than awkwardly dumping your entire multi-step internal reasoning checklist onto the human. "
+                        "Return ONLY the raw JSON array with no markdown or code fences. "
+                        "If you have gathered absolutely all the context needed to fulfill the original goal, or if you have hit a dead end and cannot proceed, you MUST logically return an empty JSON array: []"
+                    )
+                )
+
+                try:
+                    command_definitions = json.loads(response.text)
+                    if not isinstance(command_definitions, list):
+                        command_definitions = []
+                except json.JSONDecodeError:
+                    command_definitions = []
+
+                if not command_definitions:
+                    break
+
+                for cmd_def in command_definitions:
+                    cmd_name = cmd_def.get("command_name")
+                    payload = cmd_def.get("payload", {})
+                    
+                    if cmd_name == "read_file":
+                        path = payload.get("path", "")
+                        read_cmd = AgentCommandFactory.read_file(path)
+                        file_content = await self.issue_command(read_cmd)
+                        accumulated.append(f"[File: {path}]\n{file_content}")
+                    elif cmd_name == "prompt_user":
+                        question = payload.get("question", "Human input required:")
+                        self._log_debug(f"Initiating prompt_user: {question}")
+                        prompt_cmd = AgentCommandFactory.prompt_user(payload)
+                        user_reply = await self.issue_command(prompt_cmd)
+                        accumulated.append(f"[User Reply to Prompt]\n{user_reply}")
 
             return "\n\n".join(accumulated)
 
@@ -75,8 +106,8 @@ class LLMAgent(Agent):
             prompt = command.payload.get("prompt", "")
 
             # Phase 1: ask LLM what context it needs
-            phase1_response = client.models.generate_content(
-                model=self.GEMINI_3_FLASH_PREVIEW,
+            phase1_response = self._generate_with_fallback(
+                client,
                 contents=(
                     f"{prompt}\n"
                     "Before answering, describe in natural language what files or context "
@@ -90,8 +121,8 @@ class LLMAgent(Agent):
             accumulated_context = await self.issue_command(gather_cmd)
 
             # Phase 2: call LLM with context prepended
-            phase2_response = client.models.generate_content(
-                model=self.GEMINI_3_FLASH_PREVIEW,
+            phase2_response = self._generate_with_fallback(
+                client,
                 contents=f"Context:\n{accumulated_context}\n\nQuestion:\n{prompt}"
             )
             return phase2_response.text
